@@ -1,0 +1,86 @@
+MODULE RcExampleMainModule
+    VAR bool do_hand_eye_calibration := FALSE;
+    
+    PROC main()
+        VAR robtarget target1;
+        VAR robtarget target2;
+        VAR robtarget target3;
+        VAR robtarget target4;
+        VAR num job_id_1 := 1;
+        VAR num job_id_2 := 9;
+        VAR num job_status;
+
+        ! Connect to server
+        socket_connect;
+        
+        IF do_hand_eye_calibration THEN
+            ErrWrite \I, "CalibrationInfo", "Starting hand-eye calibration...";
+            perform_hand_eye_calibration;
+        ENDIF
+        
+        ! Trigger sync job and get first target
+        IF trigger_job_sync(job_id_1, target1 \debug:=FALSE) THEN
+            print_robtarget "Target1", target1;
+        ELSE
+            ErrWrite \W, "MainError", "Failed to get Target1";
+            socket_disconnect;
+            RETURN;
+        ENDIF
+        WaitTime(1);
+
+        ! Trigger async job
+        IF trigger_job_async(job_id_2 \debug:=FALSE) THEN
+            ErrWrite \W, "Success", "Async job triggered successfully"; 
+        ELSE
+            ErrWrite \W, "MainError", "Failed to trigger async job";
+            socket_disconnect;
+            RETURN;
+        ENDIF
+        WaitTime(1);
+
+        ! Get and display job status
+        job_status := get_job_status(job_id_2 \debug:=FALSE);
+        TEST job_status
+            CASE JOB_STATUS_DONE:
+                ErrWrite \I, "JobInfo", "Job completed successfully";
+            CASE JOB_STATUS_FAILED:
+                ErrWrite \I, "JobInfo", "Job failed";
+            CASE JOB_STATUS_RUNNING:
+                ErrWrite \I, "JobInfo", "Job is running";
+            CASE JOB_STATUS_INACTIVE:
+                ErrWrite \I, "JobInfo", "Job is inactive";
+            DEFAULT:
+                ErrWrite \I, "JobInfo", "Job status unknown";
+        ENDTEST
+        WaitTime(1);
+        
+        ! Wait for job completion with timeout
+        IF NOT wait_for_job(job_id_2 \delay:=1000 \timeout:=5000 \debug:=FALSE) THEN
+            ErrWrite \W, "MainError", "Job wait timeout or error";
+            socket_disconnect;
+            RETURN;
+        ENDIF
+        
+        ! Get and display next pose
+        IF get_next_pose(job_id_2, target2 \debug:=FALSE) THEN
+            print_robtarget "Target2", target2;
+        ENDIF
+        ! Get and display related pose
+        IF get_related_pose(job_id_2, target3 \debug:=FALSE) THEN
+            print_robtarget "Target2_related", target3;
+        ENDIF
+        WaitTime(1);
+        ! Get and display next pose
+        IF get_next_pose(job_id_2, target4 \debug:=FALSE) THEN
+            print_robtarget "Target4", target4;
+        ENDIF
+        
+
+        ! Clean disconnect
+        socket_disconnect;
+        
+    ERROR
+        ErrWrite \W, "MainError", "Main failed: " + NumToStr(ERRNO, 0);
+        socket_disconnect;
+    ENDPROC
+ENDMODULE

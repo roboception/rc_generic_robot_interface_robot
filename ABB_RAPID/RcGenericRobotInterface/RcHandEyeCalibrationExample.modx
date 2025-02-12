@@ -1,0 +1,81 @@
+MODULE RcHandEyeCalibrationExample
+    ! Pipeline ID for hand-eye calibration
+    CONST num HEC_PIPELINE_ID := 1;
+    
+    ! Calibration poses - these should be different robot poses that give good coverage of the workspace
+    CONST robtarget CAL_POSE_1 := [[232.4,382.9,885.4],[-0.815,0.568,-0.012,0.116],[0,0,0,0],[9E+09,9E+09,9E+09,9E+09,9E+09,9E+09]];
+    CONST robtarget CAL_POSE_2 := [[516.7,373.8,676.2],[0.794,-0.579,-0.181,0.022],[0,0,0,0],[9E+09,9E+09,9E+09,9E+09,9E+09,9E+09]];
+    CONST robtarget CAL_POSE_3 := [[-214.2,373.8,676.4],[-0.771,0.505,-0.263,0.285],[0,0,0,0],[9E+09,9E+09,9E+09,9E+09,9E+09,9E+09]];
+    CONST robtarget CAL_POSE_4 := [[218.6,629.9,676.1],[0.816,-0.574,0.047,0.048],[0,0,0,0],[9E+09,9E+09,9E+09,9E+09,9E+09,9E+09]];
+    CONST robtarget CAL_POSE_5 := [[312.8,409.0,408.6],[-0.816,0.575,0.019,0.046],[0,0,0,0],[9E+09,9E+09,9E+09,9E+09,9E+09,9E+09]];
+    CONST robtarget CAL_POSE_6 := [[645.4,409.2,335.7],[0.777,-0.565,-0.252,0.121],[0,0,0,0],[9E+09,9E+09,9E+09,9E+09,9E+09,9E+09]];
+    CONST robtarget CAL_POSE_7 := [[-39.2,409.3,328.5],[-0.763,0.515,-0.292,0.261],[0,0,0,0],[9E+09,9E+09,9E+09,9E+09,9E+09,9E+09]];
+    CONST robtarget CAL_POSE_8 := [[291.2,610.4,328.0],[0.796,-0.548,0.173,0.193],[0,0,0,0],[9E+09,9E+09,9E+09,9E+09,9E+09,9E+09]];
+    
+    PROC perform_hand_eye_calibration()
+        ! Initialize HEC pipeline
+        IF NOT hec_init(HEC_PIPELINE_ID \debug:=TRUE) THEN
+            ErrWrite \W, "HECError", "Failed to initialize hand-eye calibration";
+            RETURN;
+        ENDIF
+        
+        ! Set calibration poses
+        IF NOT set_calibration_poses() THEN
+            ErrWrite \W, "HECError", "Failed to set calibration poses";
+            RETURN;
+        ENDIF
+        
+        ! Perform calibration
+        IF NOT hec_calibrate(HEC_PIPELINE_ID \debug:=TRUE) THEN
+            ErrWrite \W, "HECError", "Failed to perform calibration";
+            RETURN;
+        ENDIF
+        
+        ErrWrite \I, "HECSuccess", "Hand-eye calibration completed successfully";
+        
+    ERROR
+        ErrWrite \W, "HECError", "Error during hand-eye calibration: " + NumToStr(ERRNO, 0);
+    ENDPROC
+    
+    FUNC bool set_calibration_poses()
+        ! Set all 8 calibration poses
+        IF NOT hec_set_pose(HEC_PIPELINE_ID, 1, CAL_POSE_1 \debug:=TRUE) THEN
+            RETURN FALSE;
+        ENDIF
+        
+        IF NOT hec_set_pose(HEC_PIPELINE_ID, 2, CAL_POSE_2 \debug:=TRUE) THEN
+            RETURN FALSE;
+        ENDIF
+        
+        IF NOT hec_set_pose(HEC_PIPELINE_ID, 3, CAL_POSE_3 \debug:=TRUE) THEN
+            RETURN FALSE;
+        ENDIF
+        
+        IF NOT hec_set_pose(HEC_PIPELINE_ID, 4, CAL_POSE_4 \debug:=TRUE) THEN
+            RETURN FALSE;
+        ENDIF
+        
+        IF NOT hec_set_pose(HEC_PIPELINE_ID, 5, CAL_POSE_5 \debug:=TRUE) THEN
+            RETURN FALSE;
+        ENDIF
+        
+        IF NOT hec_set_pose(HEC_PIPELINE_ID, 6, CAL_POSE_6 \debug:=TRUE) THEN
+            RETURN FALSE;
+        ENDIF
+        
+        IF NOT hec_set_pose(HEC_PIPELINE_ID, 7, CAL_POSE_7 \debug:=TRUE) THEN
+            RETURN FALSE;
+        ENDIF
+        
+        IF NOT hec_set_pose(HEC_PIPELINE_ID, 8, CAL_POSE_8 \debug:=TRUE) THEN
+            RETURN FALSE;
+        ENDIF
+        
+        RETURN TRUE;
+        
+    ERROR
+        ErrWrite \W, "HECError", "Error setting calibration poses: " + NumToStr(ERRNO, 0);
+        RETURN FALSE;
+    ENDFUNC
+    
+ENDMODULE 

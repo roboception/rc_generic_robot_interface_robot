@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="ISO-8859-1" ?>
+<Program>
+	<Module>RcConfig.modx</Module>
+	<Module>RcProtocolDefs.modx</Module>
+	<Module>RcSocketCommunication.modx</Module>
+	<Module>RcExampleMainModule.modx</Module>
+	<Module>RcDebug.modx</Module>
+	<Module>RcInterfaceFunctions.modx</Module>
+</Program>

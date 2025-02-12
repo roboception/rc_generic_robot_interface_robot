@@ -1,0 +1,200 @@
+MODULE RcSocketCommunication(READONLY)
+    !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+    ! Socket Management Functions
+    !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+    
+    LOCAL VAR socketdev client_socket;
+    LOCAL VAR bool is_connected := FALSE;
+    
+    PROC socket_connect()
+        IF is_connected THEN
+            ErrWrite \I, "ConnStatus", "Already connected";
+        ENDIF
+        
+        ! Create and connect socket
+        SocketCreate client_socket;
+        SocketConnect client_socket, SERVER_IP, SERVER_PORT;
+        is_connected := TRUE;
+        
+        ErrWrite \I, "ConnInfo", "Connected to " + SERVER_IP + ":" + NumToStr(SERVER_PORT,0);
+        
+        ERROR
+            IF ERRNO = ERR_SOCK_TIMEOUT THEN
+                ErrWrite \W, "ConnTimeout", "Connection timeout";
+            ELSEIF ERRNO = ERR_SOCK_CLOSED THEN
+                ErrWrite \W, "ConnClosed", "Socket closed unexpectedly";
+            ELSE
+                ErrWrite \W, "ConnError", "Connection error: " + NumToStr(ERRNO,0);
+            ENDIF
+    ENDPROC
+    
+    PROC socket_disconnect()
+        IF is_connected THEN
+            WaitTime 0.1;
+            SocketClose client_socket;
+            is_connected := FALSE;
+            ErrWrite \I, "DisconnInfo", "Disconnected";
+        ENDIF
+        
+        ERROR
+            ErrWrite \W, "DisconnError", "Error during disconnect: " + NumToStr(ERRNO,0);
+    ENDPROC
+    
+    ! Raw Data Transfer Function
+    FUNC bool socket_send_receive(VAR rawbytes request, VAR rawbytes response, \bool debug)
+        IF NOT is_connected THEN
+            ErrWrite \W, "CommError", "Not connected - cannot send/receive";
+            RETURN FALSE;
+        ENDIF
+        
+        ! Send request (50 bytes)
+        SocketSend client_socket \RawData:=request;
+        
+        ! Clear and receive response (expect 55 bytes)
+        ClearRawBytes response;
+        SocketReceive client_socket \RawData:=response \Time:=SERVER_TIMEOUT;
+        
+        ! Validate response length
+        IF RawBytesLen(response) <> RESPONSE_MESSAGE_LENGTH THEN
+            ErrWrite \W, "LengthError", "Response length: " + 
+                   NumToStr(RawBytesLen(response),0) + 
+                   " Expected: " + NumToStr(RESPONSE_MESSAGE_LENGTH,0);
+            RETURN FALSE;
+        ENDIF
+        
+        ! Print debug info if requested
+        IF Present(debug) AND debug THEN
+            print_server_response response;
+        ENDIF
+        
+        RETURN TRUE;
+        
+        ERROR
+            IF ERRNO = ERR_SOCK_TIMEOUT THEN
+                ErrWrite \W, "RecvTimeout", "Receive timeout";
+            ELSEIF ERRNO = ERR_SOCK_CLOSED THEN
+                ErrWrite \W, "RecvClosed", "Socket closed during transfer";
+            ELSE
+                ErrWrite \W, "RecvError", "Transfer error: " + NumToStr(ERRNO,0);
+            ENDIF
+            RETURN FALSE;
+    ENDFUNC
+    
+    ! Message Packing Function
+    PROC request_pack(VAR rawbytes request,
+                     num action,
+                     num job_id,
+                     \robtarget current_pos,
+                     \num data1,
+                     \num data2,
+                     \num data3,
+                     \num data4)
+        
+        ClearRawBytes request;
+        
+        ! Pack header
+        PackRawBytes MAGIC_NUMBER, request, 1, \IntX:=SINT;
+        PackRawBytes PROTOCOL_VERSION, request, 2, \IntX:=SINT;
+        PackRawBytes REQUEST_MESSAGE_LENGTH, request, 3, \IntX:=SINT;
+        PackRawBytes POSE_FORMAT_MM_QUATERNION, request, 4, \IntX:=SINT;
+        PackRawBytes action, request, 5, \IntX:=SINT;
+        PackRawBytes job_id, request, 6, \IntX:=SINT;
+        
+        ! Pack position if provided
+        IF Present(current_pos) THEN
+            PackRawBytes current_pos.trans.x, request, 7, \Float4;
+            PackRawBytes current_pos.trans.y, request, 11, \Float4;
+            PackRawBytes current_pos.trans.z, request, 15, \Float4;
+            PackRawBytes current_pos.rot.q1, request, 19, \Float4;
+            PackRawBytes current_pos.rot.q2, request, 23, \Float4;
+            PackRawBytes current_pos.rot.q3, request, 27, \Float4;
+            PackRawBytes current_pos.rot.q4, request, 31, \Float4;
+        ELSE
+            FOR i FROM 7 TO 31 STEP 4 DO
+                PackRawBytes 0, request, i, \Float4;
+            ENDFOR
+        ENDIF
+        
+        ! Pack additional data if provided
+        IF Present(data1) THEN
+            PackRawBytes data1, request, 35, \IntX:=UDINT;
+        ELSE
+            PackRawBytes 0, request, 35, \IntX:=UDINT;
+        ENDIF
+        
+        IF Present(data2) THEN
+            PackRawBytes data2, request, 39, \IntX:=UDINT;
+        ELSE
+            PackRawBytes 0, request, 39, \IntX:=UDINT;
+        ENDIF
+        
+        IF Present(data3) THEN
+            PackRawBytes data3, request, 43, \IntX:=UDINT;
+        ELSE
+            PackRawBytes 0, request, 43, \IntX:=UDINT;
+        ENDIF
+        
+        IF Present(data4) THEN
+            PackRawBytes data4, request, 47, \IntX:=UDINT;
+        ELSE
+            PackRawBytes 0, request, 47, \IntX:=UDINT;
+        ENDIF
+        
+        ERROR
+            ErrWrite \W, "PackError", "Error packing request: " + NumToStr(ERRNO,0);
+    ENDPROC
+    
+    ! Message Unpacking Function 
+    FUNC bool response_unpack(VAR rawbytes response,
+                            VAR num magic,
+                            VAR num protocol_ver,
+                            VAR num message_length,
+                            VAR num pose_format,
+                            VAR num action,
+                            VAR num job_id,
+                            VAR num error_code,
+                            VAR robtarget pose,
+                            VAR num data1,
+                            VAR num data2,
+                            VAR num data3,
+                            VAR num data4,
+                            VAR num data5)
+        
+        ! Header (bytes 0-6)
+        UnpackRawBytes response, 1, magic, \IntX:=SINT;
+        UnpackRawBytes response, 2, protocol_ver, \IntX:=SINT;
+        UnpackRawBytes response, 3, message_length, \IntX:=SINT;
+        UnpackRawBytes response, 4, pose_format, \IntX:=SINT;
+        UnpackRawBytes response, 5, action, \IntX:=SINT;
+        UnpackRawBytes response, 6, job_id, \IntX:=SINT;
+        UnpackRawBytes response, 7, error_code, \IntX:=SINT;
+        
+        ! Position data (bytes 7-18)
+        UnpackRawBytes response, 8, pose.trans.x, \Float4;
+        UnpackRawBytes response, 12, pose.trans.y, \Float4;
+        UnpackRawBytes response, 16, pose.trans.z, \Float4;
+        
+        ! Rotation data (bytes 19-34)
+        UnpackRawBytes response, 20, pose.rot.q1, \Float4;
+        UnpackRawBytes response, 24, pose.rot.q2, \Float4;
+        UnpackRawBytes response, 28, pose.rot.q3, \Float4;
+        UnpackRawBytes response, 32, pose.rot.q4, \Float4;
+        
+        ! Set default values for unused robtarget components
+        pose.robconf := [0,0,0,0];
+        pose.extax := [0,0,0,0,0,0];
+        
+        ! Additional data fields (bytes 35-54)
+        UnpackRawBytes response, 36, data1, \IntX:=UDINT;
+        UnpackRawBytes response, 40, data2, \IntX:=UDINT;
+        UnpackRawBytes response, 44, data3, \IntX:=UDINT;
+        UnpackRawBytes response, 48, data4, \IntX:=UDINT;
+        UnpackRawBytes response, 52, data5, \IntX:=UDINT;
+        
+        RETURN TRUE;
+        
+        ERROR
+            ErrWrite \W, "UnpackError", "Failed unpacking response";
+            RETURN FALSE;
+    ENDFUNC
+ENDMODULE

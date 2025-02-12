@@ -1,0 +1,6 @@
+MODULE RcConfig
+    ! Server Configuration
+    CONST string SERVER_IP := "1.2.3.4";
+    CONST num SERVER_PORT := 10000;
+    CONST num SERVER_TIMEOUT := 5;
+ENDMODULE

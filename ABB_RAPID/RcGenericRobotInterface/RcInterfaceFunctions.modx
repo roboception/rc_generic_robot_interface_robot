@@ -1,0 +1,478 @@
+MODULE RcInterfaceFunctions(READONLY)
+    !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+    ! High Level functions to trigger API methods - to be explicitly used in the robot program
+    !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+    
+    LOCAL VAR rawbytes request;
+    LOCAL VAR rawbytes response;
+    
+    FUNC bool trigger_job_sync(num job_id, INOUT robtarget output_point, \bool debug)
+        VAR num magic;
+        VAR num protocol_ver;
+        VAR num message_length;
+        VAR num pose_format;
+        VAR num action;
+        VAR num resp_job_id;
+        VAR num error_code;
+        VAR robtarget current_pos;
+        VAR num data1;
+        VAR num data2;
+        VAR num data3;
+        VAR num data4;
+        VAR num data5;
+        
+        ! Get current robot position
+        current_pos := CRobT(\Tool:=tool0\WObj:=wobj0);
+        
+        ! Pack and send request with current position
+        request_pack request, ACTION_TRIGGER_JOB_SYNC, job_id \current_pos:=current_pos;
+        
+        IF NOT socket_send_receive(request, response \debug:=debug) THEN
+            RETURN FALSE;
+        ENDIF
+        
+        ! Unpack response
+        IF NOT response_unpack(response,
+                             magic,
+                             protocol_ver,
+                             message_length,
+                             pose_format,
+                             action,
+                             resp_job_id,
+                             error_code,
+                             output_point,
+                             data1,
+                             data2,
+                             data3,
+                             data4,
+                             data5) THEN
+            RETURN FALSE;
+        ENDIF
+        
+        IF error_code = 0 THEN
+            RETURN TRUE;
+        ELSE
+            ErrWrite \W, "TriggerJobSyncError", "Job " + NumToStr(job_id, 0) + " failed: " + get_error_string(error_code);
+            RETURN FALSE;
+        ENDIF
+        
+    ERROR
+        ErrWrite \W, "TriggerJobSyncError", "Failed executing sync job " + NumToStr(job_id, 0);
+        RETURN FALSE;
+    ENDFUNC
+    
+    FUNC bool trigger_job_async(num job_id, \bool debug)
+        VAR num magic;
+        VAR num protocol_ver;
+        VAR num message_length;
+        VAR num pose_format;
+        VAR num action;
+        VAR num resp_job_id;
+        VAR num error_code;
+        VAR robtarget pose;
+        VAR robtarget current_pos;
+        VAR num data1;
+        VAR num data2;
+        VAR num data3;
+        VAR num data4;
+        VAR num data5;
+        
+        ! Get current robot position
+        current_pos := CRobT(\Tool:=tool0\WObj:=wobj0);
+        
+        ! Pack and send request with current position
+        request_pack request, ACTION_TRIGGER_JOB_ASYNC, job_id \current_pos:=current_pos;
+        
+        IF NOT socket_send_receive(request, response \debug:=debug) THEN
+            RETURN FALSE;
+        ENDIF
+        
+        ! Unpack response (we only care about error code)
+        IF NOT response_unpack(response,
+                             magic,
+                             protocol_ver,
+                             message_length,
+                             pose_format,
+                             action,
+                             resp_job_id,
+                             error_code,
+                             pose,
+                             data1,
+                             data2,
+                             data3,
+                             data4,
+                             data5) THEN
+            RETURN FALSE;
+        ENDIF
+        
+        IF error_code = 0 THEN
+            RETURN TRUE;
+        ELSE
+            ErrWrite \W, "TriggerJobAsyncError", "Job " + NumToStr(job_id, 0) + " failed: " + get_error_string(error_code);
+            RETURN FALSE;
+        ENDIF
+        
+    ERROR
+        ErrWrite \W, "TriggerJobAsyncError", "Failed triggering async job " + NumToStr(job_id, 0);
+        RETURN FALSE;
+    ENDFUNC
+    
+    FUNC bool get_next_pose(num job_id, INOUT robtarget output_point, \bool debug)
+        VAR num magic;
+        VAR num protocol_ver;
+        VAR num message_length;
+        VAR num pose_format;
+        VAR num action;
+        VAR num resp_job_id;
+        VAR num error_code;
+        VAR num data1;
+        VAR num data2;
+        VAR num data3;
+        VAR num data4;
+        VAR num data5;
+        
+        ! Pack and send request (no position needed)
+        request_pack request, ACTION_GET_NEXT_POSE, job_id;
+        
+        IF NOT socket_send_receive(request, response \debug:=debug) THEN
+            RETURN FALSE;
+        ENDIF
+        
+        ! Unpack response
+        IF NOT response_unpack(response,
+                             magic,
+                             protocol_ver,
+                             message_length,
+                             pose_format,
+                             action,
+                             resp_job_id,
+                             error_code,
+                             output_point,
+                             data1,
+                             data2,
+                             data3,
+                             data4,
+                             data5) THEN
+            RETURN FALSE;
+        ENDIF
+        
+        IF error_code = 0 THEN
+            RETURN TRUE;
+        ELSE
+            ErrWrite \W, "GetNextPoseError", "Job " + NumToStr(job_id, 0) + " failed: " + get_error_string(error_code);
+            RETURN FALSE;
+        ENDIF
+        
+    ERROR
+        ErrWrite \W, "GetNextPoseError", "Failed getting next pose for job " + NumToStr(job_id, 0);
+        RETURN FALSE;
+    ENDFUNC
+    
+    FUNC bool get_related_pose(num job_id, INOUT robtarget output_point, \bool debug)
+        VAR num magic;
+        VAR num protocol_ver;
+        VAR num message_length;
+        VAR num pose_format;
+        VAR num action;
+        VAR num resp_job_id;
+        VAR num error_code;
+        VAR num data1;
+        VAR num data2;
+        VAR num data3;
+        VAR num data4;
+        VAR num data5;
+        
+        ! Pack and send request (no position needed)
+        request_pack request, ACTION_GET_RELATED_POSE, job_id;
+        
+        IF NOT socket_send_receive(request, response \debug:=debug) THEN
+            RETURN FALSE;
+        ENDIF
+        
+        ! Unpack response
+        IF NOT response_unpack(response,
+                             magic,
+                             protocol_ver,
+                             message_length,
+                             pose_format,
+                             action,
+                             resp_job_id,
+                             error_code,
+                             output_point,
+                             data1,
+                             data2,
+                             data3,
+                             data4,
+                             data5) THEN
+            RETURN FALSE;
+        ENDIF
+        
+        IF error_code = 0 THEN
+            RETURN TRUE;
+        ELSE
+            ErrWrite \W, "GetRelatedPoseError", "Job " + NumToStr(job_id, 0) + " failed: " + get_error_string(error_code);
+            RETURN FALSE;
+        ENDIF
+        
+    ERROR
+        ErrWrite \W, "GetRelatedPoseError", "Failed getting related pose for job " + NumToStr(job_id, 0);
+        RETURN FALSE;
+    ENDFUNC
+    
+    FUNC num get_job_status(num job_id, \bool debug)
+        VAR num magic;
+        VAR num protocol_ver;
+        VAR num message_length;
+        VAR num pose_format;
+        VAR num action;
+        VAR num resp_job_id;
+        VAR num error_code;
+        VAR robtarget pose;
+        VAR num data1;
+        VAR num data2;
+        VAR num data3;
+        VAR num data4;
+        VAR num data5;
+        
+        ! Pack and send request
+        request_pack request, ACTION_GET_JOB_STATUS, job_id;
+                                       
+        IF NOT socket_send_receive(request, response \debug:=debug) THEN
+            RETURN JOB_STATUS_UNKNOWN;
+        ENDIF
+        
+        ! Unpack response
+        IF NOT response_unpack(response,
+                             magic,
+                             protocol_ver,
+                             message_length,
+                             pose_format,
+                             action,
+                             resp_job_id,
+                             error_code,
+                             pose,
+                             data1,
+                             data2,
+                             data3,
+                             data4,
+                             data5) THEN
+            RETURN JOB_STATUS_UNKNOWN;
+        ENDIF
+        
+        IF error_code = 0 THEN
+            IF Present(debug) AND debug THEN
+                ErrWrite \I, "JobStatus", NumToStr(data1, 0);
+            ENDIF
+            
+            RETURN data1;  ! Return the job status integer
+        ELSE
+            ErrWrite \W, "GetJobStatusError", "Job " + NumToStr(job_id, 0) + " failed: " + get_error_string(error_code);
+            RETURN JOB_STATUS_UNKNOWN;
+        ENDIF
+        
+    ERROR
+        ErrWrite \W, "GetJobStatusError", "Failed checking job " + NumToStr(job_id, 0);
+        RETURN JOB_STATUS_UNKNOWN;
+    ENDFUNC
+    
+    FUNC bool job_finished(num job_id, \bool debug)
+        VAR num status;
+        
+        status := get_job_status(job_id \debug:=debug);
+        
+        RETURN status = JOB_STATUS_DONE;
+    ENDFUNC
+    
+    FUNC bool wait_for_job(num job_id, \num delay, \num timeout, \bool debug)
+        VAR bool job_done := FALSE;
+        VAR num time_elapsed := 0;
+        VAR num check_delay;
+        
+        ! Set default delay if not provided
+        IF Present(delay) THEN
+            check_delay := delay;
+        ELSE
+            check_delay := 1000; ! Default 1 second
+        ENDIF
+        
+        WHILE NOT job_done DO
+            ! Check for timeout
+            IF Present(timeout) AND time_elapsed >= timeout THEN
+                ErrWrite \W, "WaitForJobError", "Timeout waiting for job " + NumToStr(job_id, 0);
+                RETURN FALSE;
+            ENDIF
+            
+            WaitTime check_delay/1000;  ! Convert ms to s
+            time_elapsed := time_elapsed + check_delay;
+            
+            job_done := job_finished(job_id \debug:=debug);
+            
+            IF NOT job_done AND Present(debug) AND debug THEN
+                ErrWrite \I, "WaitStatus", "Job " + NumToStr(job_id,0) + " not completed yet";
+            ENDIF
+        ENDWHILE
+        
+        RETURN TRUE;
+        
+    ERROR
+        ErrWrite \W, "WaitForJobError", "Error waiting for job " + NumToStr(job_id, 0);
+        RETURN FALSE;
+    ENDFUNC
+    
+    FUNC bool hec_init(num pipeline_id, \bool debug)
+        VAR num magic;
+        VAR num protocol_ver;
+        VAR num message_length;
+        VAR num pose_format;
+        VAR num action;
+        VAR num resp_job_id;
+        VAR num error_code;
+        VAR robtarget pose;
+        VAR num data1;
+        VAR num data2;
+        VAR num data3;
+        VAR num data4;
+        VAR num data5;
+        
+        ! Pack and send request with pipeline ID in data1
+        request_pack request, ACTION_HEC_INIT, 0 \data1:=pipeline_id;
+        
+        IF NOT socket_send_receive(request, response \debug:=debug) THEN
+            RETURN FALSE;
+        ENDIF
+        
+        ! Unpack response
+        IF NOT response_unpack(response,
+                             magic,
+                             protocol_ver,
+                             message_length,
+                             pose_format,
+                             action,
+                             resp_job_id,
+                             error_code,
+                             pose,
+                             data1,
+                             data2,
+                             data3,
+                             data4,
+                             data5) THEN
+            RETURN FALSE;
+        ENDIF
+        
+        IF error_code = 0 THEN
+            RETURN TRUE;
+        ELSE
+            ErrWrite \W, "HecInitError", "Pipeline " + NumToStr(pipeline_id, 0) + " failed: " + get_error_string(error_code);
+            RETURN FALSE;
+        ENDIF
+        
+    ERROR
+        ErrWrite \W, "HecInitError", "Failed initializing HEC for pipeline " + NumToStr(pipeline_id, 0);
+        RETURN FALSE;
+    ENDFUNC
+    
+    FUNC bool hec_set_pose(num pipeline_id, num slot, robtarget pose, \bool debug)
+        VAR num magic;
+        VAR num protocol_ver;
+        VAR num message_length;
+        VAR num pose_format;
+        VAR num action;
+        VAR num resp_job_id;
+        VAR num error_code;
+        VAR robtarget resp_pose;
+        VAR num data1;
+        VAR num data2;
+        VAR num data3;
+        VAR num data4;
+        VAR num data5;
+        
+        ! Pack and send request with pipeline ID in data1 and slot in data2
+        request_pack request, ACTION_HEC_SET_POSE, 0 \current_pos:=pose \data1:=pipeline_id \data2:=slot;
+        
+        IF NOT socket_send_receive(request, response \debug:=debug) THEN
+            RETURN FALSE;
+        ENDIF
+        
+        ! Unpack response
+        IF NOT response_unpack(response,
+                             magic,
+                             protocol_ver,
+                             message_length,
+                             pose_format,
+                             action,
+                             resp_job_id,
+                             error_code,
+                             resp_pose,
+                             data1,
+                             data2,
+                             data3,
+                             data4,
+                             data5) THEN
+            RETURN FALSE;
+        ENDIF
+        
+        IF error_code = 0 THEN
+            RETURN TRUE;
+        ELSE
+            ErrWrite \W, "HecSetPoseError", "Pipeline " + NumToStr(pipeline_id, 0) + " slot " + NumToStr(slot, 0) + " failed: " + get_error_string(error_code);
+            RETURN FALSE;
+        ENDIF
+        
+    ERROR
+        ErrWrite \W, "HecSetPoseError", "Failed setting pose for pipeline " + NumToStr(pipeline_id, 0) + " slot " + NumToStr(slot, 0);
+        RETURN FALSE;
+    ENDFUNC
+    
+    FUNC bool hec_calibrate(num pipeline_id, \bool debug)
+        VAR num magic;
+        VAR num protocol_ver;
+        VAR num message_length;
+        VAR num pose_format;
+        VAR num action;
+        VAR num resp_job_id;
+        VAR num error_code;
+        VAR robtarget pose;
+        VAR num data1;
+        VAR num data2;
+        VAR num data3;
+        VAR num data4;
+        VAR num data5;
+        
+        ! Pack and send request with pipeline ID in data1
+        request_pack request, ACTION_HEC_CALIBRATE, 0 \data1:=pipeline_id;
+        
+        IF NOT socket_send_receive(request, response \debug:=debug) THEN
+            RETURN FALSE;
+        ENDIF
+        
+        ! Unpack response
+        IF NOT response_unpack(response,
+                             magic,
+                             protocol_ver,
+                             message_length,
+                             pose_format,
+                             action,
+                             resp_job_id,
+                             error_code,
+                             pose,
+                             data1,
+                             data2,
+                             data3,
+                             data4,
+                             data5) THEN
+            RETURN FALSE;
+        ENDIF
+        
+        IF error_code = 0 THEN
+            RETURN TRUE;
+        ELSE
+            ErrWrite \W, "HecCalibrateError", "Pipeline " + NumToStr(pipeline_id, 0) + " failed: " + get_error_string(error_code);
+            RETURN FALSE;
+        ENDIF
+        
+    ERROR
+        ErrWrite \W, "HecCalibrateError", "Failed calibrating pipeline " + NumToStr(pipeline_id, 0);
+        RETURN FALSE;
+    ENDFUNC
+    
+ENDMODULE

@@ -1,0 +1,111 @@
+MODULE RcProtocolDefs(READONLY)
+    ! Protocol V2 specific constants
+    CONST num MAGIC_NUMBER := 2;
+    CONST num PROTOCOL_VERSION := 2;
+    CONST num REQUEST_MESSAGE_LENGTH := 50;
+    CONST num RESPONSE_MESSAGE_LENGTH := 55;
+    
+    ! Updated pose format constants
+    CONST num POSE_FORMAT_MM_QUATERNION := 2;
+    
+    ! Updated action constants
+    CONST num ACTION_UNKNOWN := 0;
+    CONST num ACTION_STATUS := 1;
+    CONST num ACTION_TRIGGER_JOB_SYNC := 2;
+    CONST num ACTION_TRIGGER_JOB_ASYNC := 3;
+    CONST num ACTION_GET_JOB_STATUS := 4;
+    CONST num ACTION_GET_NEXT_POSE := 5;
+    CONST num ACTION_GET_RELATED_POSE := 6;
+    CONST num ACTION_HEC_INIT := 7;
+    CONST num ACTION_HEC_SET_POSE := 8;
+    CONST num ACTION_HEC_CALIBRATE := 9;
+    
+    ! Updated error code definitions
+    CONST num ERR_NO_ERROR := 0;
+    CONST num ERR_UNKNOWN_ERROR := 1;
+    CONST num ERR_INTERNAL_ERROR := 2;
+    CONST num ERR_API_NOT_REACHABLE := 3;
+    CONST num ERR_PIPELINE_NOT_AVAILABLE := 4;
+    CONST num ERR_INVALID_REQUEST_ERROR := 5;
+    CONST num ERR_INVALID_REQUEST_LENGTH := 6;
+    CONST num ERR_INVALID_ACTION := 7;
+    CONST num ERR_PROCESSING_TIMEOUT := 8;
+    CONST num ERR_UNKNOWN_PROTOCOL_VERSION := 9;
+    CONST num ERR_JOB_DOES_NOT_EXIST := 10;
+    CONST num ERR_JOB_CHANGED := 11;
+    CONST num ERR_MISCONFIGURED_JOB := 12;
+    CONST num ERR_NO_POSES_FOUND := 13;
+    CONST num ERR_NO_ASSOCIATED_OBJECTS := 14;
+    CONST num ERR_JOB_STILL_RUNNING := 15;
+    CONST num ERR_HEC_CONFIG_ERROR := 16;
+    CONST num ERR_HEC_INIT_ERROR := 17;
+    CONST num ERR_HEC_SET_POSE_ERROR := 18;
+    CONST num ERR_HEC_CALIBRATE_ERROR := 19;
+    CONST num ERR_HEC_INSUFFICIENT_DETECTION := 20;
+    CONST num ERR_NOT_IMPLEMENTED := 100;
+    CONST num ERR_API_ERROR := 101;
+    CONST num ERR_API_RESPONSE_ERROR := 102;
+    
+    ! Added job status constants
+    CONST num JOB_STATUS_UNKNOWN := 0;
+    CONST num JOB_STATUS_INACTIVE := 1;
+    CONST num JOB_STATUS_RUNNING := 2;
+    CONST num JOB_STATUS_DONE := 3;
+    CONST num JOB_STATUS_FAILED := 4;
+    
+
+    FUNC string get_error_string(num error_code)
+        TEST error_code
+            CASE ERR_NO_ERROR:
+                RETURN "Success";
+            CASE ERR_UNKNOWN_ERROR:
+                RETURN "Unknown Error";
+            CASE ERR_INTERNAL_ERROR:
+                RETURN "Internal Error";
+            CASE ERR_API_NOT_REACHABLE:
+                RETURN "API Not Reachable";
+            CASE ERR_PIPELINE_NOT_AVAILABLE:
+                RETURN "Pipeline Not Available";
+            CASE ERR_INVALID_REQUEST_ERROR:
+                RETURN "Invalid Request Error";
+            CASE ERR_INVALID_REQUEST_LENGTH:
+                RETURN "Invalid Request Length";
+            CASE ERR_INVALID_ACTION:
+                RETURN "Invalid Action";
+            CASE ERR_PROCESSING_TIMEOUT:
+                RETURN "Processing Timeout";
+            CASE ERR_UNKNOWN_PROTOCOL_VERSION:
+                RETURN "Unknown Protocol Version";
+            CASE ERR_JOB_DOES_NOT_EXIST:
+                RETURN "Job Does Not Exist";
+            CASE ERR_JOB_CHANGED:
+                RETURN "Job Changed";
+            CASE ERR_MISCONFIGURED_JOB:
+                RETURN "Misconfigured Job";
+            CASE ERR_NO_POSES_FOUND:
+                RETURN "No Poses Found";
+            CASE ERR_NO_ASSOCIATED_OBJECTS:
+                RETURN "No Associated Objects";
+            CASE ERR_JOB_STILL_RUNNING:
+                RETURN "Job Still Running";
+            CASE ERR_HEC_CONFIG_ERROR:
+                RETURN "HEC Config Error";
+            CASE ERR_HEC_INIT_ERROR:
+                RETURN "HEC Init Error";
+            CASE ERR_HEC_SET_POSE_ERROR:
+                RETURN "HEC Set Pose Error";
+            CASE ERR_HEC_CALIBRATE_ERROR:
+                RETURN "HEC Calibrate Error";
+            CASE ERR_HEC_INSUFFICIENT_DETECTION:
+                RETURN "HEC Insufficient Detection";
+            CASE ERR_NOT_IMPLEMENTED:
+                RETURN "Not Implemented";
+            CASE ERR_API_ERROR:
+                RETURN "API Error";
+            CASE ERR_API_RESPONSE_ERROR:
+                RETURN "API Response Error";
+            DEFAULT:
+                RETURN "Unknown Error Code";
+        ENDTEST
+    ENDFUNC
+ENDMODULE
