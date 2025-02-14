@@ -135,12 +135,13 @@ The protocol system uses a hierarchical design with extensible base classes:
 | MISCONFIGURED_JOB        | 12    | Invalid job configuration        |
 | NO_POSES_FOUND           | 13    | No results available             |
 | NO_ASSOCIATED_OBJECTS    | 14    | No related data found            |
-| JOB_STILL_RUNNING        | 15    | Async job not complete           |
-| HEC_CONFIG_ERROR         | 16    | Calibration configuration error  |
-| HEC_INIT_ERROR          | 17    | Calibration init failed          |
-| HEC_SET_POSE_ERROR      | 18    | Invalid calibration pose         |
-| HEC_CALIBRATE_ERROR     | 19    | Calibration computation failed   |
-| HEC_INSUFFICIENT_DETECTION| 20    | Not enough calibration data     |
+| NO_RETURN_SPECIFIED      | 15    | Job configured with no return type |
+| JOB_STILL_RUNNING        | 16    | Async job not complete           |
+| HEC_CONFIG_ERROR         | 17    | Calibration configuration error  |
+| HEC_INIT_ERROR          | 18    | Calibration init failed          |
+| HEC_SET_POSE_ERROR      | 19    | Invalid calibration pose         |
+| HEC_CALIBRATE_ERROR     | 20    | Calibration computation failed   |
+| HEC_INSUFFICIENT_DETECTION| 21    | Not enough calibration data     |
 
 #### Protocol V2 Actions
 | Name              | Value | Description                        |
