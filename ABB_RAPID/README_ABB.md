@@ -5,9 +5,24 @@ This is the ABB RAPID implementation of Roboception's Generic Robot Interface. I
 ## Quick Start
 
 1. Copy the RcGenericRobotInterface folder to your robot
-2. Configure the server IP and port in `RcConfig.modx`
+2. Configure the server IP and port in `RcConfig.modx` to match your Roboception sensor's settings
 3. Load all modules into your RobotStudio project
 4. Use the provided functions in your RAPID program
+
+## Module Structure
+
+The implementation consists of two types of modules:
+
+### Roboception Core Modules (Required)
+- `RcConfig`: Server configuration (IP, port, timeout)
+- `RcInterfaceFunctions`: Main function implementations
+- `RcSocketCommunication`: TCP socket handling
+- `RcProtocolDefs`: Protocol constants and error codes
+- `RcDebug`: Debug utilities
+
+### Example Modules (Optional)
+- `ExampleMainModule`: Demonstrates basic usage of the interface
+- `HandEyeCalibrationExample`: Shows how to perform hand-eye calibration
 
 ## Main Functions
 
@@ -39,12 +54,45 @@ All functions return `bool` indicating success/failure and have an optional `\de
   - Optional timeout
   - Example: `wait_for_job(1 \delay:=1000 \timeout:=5000)`
 
-### Important Notes
+## Hand-Eye Calibration
+
+The hand-eye calibration process determines the transformation between the robot's flange and the camera system. The implementation is provided in `HandEyeCalibrationExample.modx`.
+
+### Calibration Process
+1. Initialize the calibration pipeline using `hec_init`
+2. Move the robot to multiple calibration poses (8 poses recommended)
+3. At each pose:
+   - Use precise movements (fine positioning)
+   - Allow settling time
+   - Record the pose using `hec_set_pose`
+4. Compute final calibration using `hec_calibrate`
+
+### Calibration Requirements
+- Use well-distributed poses across the workspace
+- Ensure different orientations at each pose
+- Keep calibration pattern within camera field of view
+- Use fine positioning for accurate pose achievement
+
+### Example Usage
+```rapid
+PROC main()
+    socket_connect;
+    
+    IF do_hand_eye_calibration THEN
+        perform_hand_eye_calibration;
+    ENDIF
+    
+    socket_disconnect;
+ERROR
+    socket_disconnect;
+ENDPROC
+```
+
+## Important Notes
 
 - Define `VAR robtarget output_point;` before using position functions
 - Always call `socket_connect;` before first use
 - Call `socket_disconnect;` when finished
-- Use error handling for robust operation
 
 ## Basic Example
 
@@ -71,13 +119,3 @@ ERROR
     socket_disconnect;
 ENDPROC
 ```
-
-## Module Structure
-
-- `RcConfig`: Server configuration (IP, port)
-- `RcInterfaceFunctions`: Main function implementations
-- `RcSocketCommunication`: TCP socket handling
-- `RcProtocolDefs`: Protocol constants and error codes
-- `RcDebug`: Debug utilities
-
-For detailed protocol specifications or advanced usage, please refer to the main documentation.

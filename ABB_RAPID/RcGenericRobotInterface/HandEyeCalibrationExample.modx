@@ -19,13 +19,40 @@ MODULE RcHandEyeCalibrationExample
             RETURN;
         ENDIF
         
-        ! Set calibration poses
-        IF NOT set_calibration_poses() THEN
-            ErrWrite \W, "HECError", "Failed to set calibration poses";
+        ! Move to and collect data for each calibration pose
+        IF NOT collect_calibration_pose(1, CAL_POSE_1) THEN
             RETURN;
         ENDIF
         
-        ! Perform calibration
+        IF NOT collect_calibration_pose(2, CAL_POSE_2) THEN
+            RETURN;
+        ENDIF
+        
+        IF NOT collect_calibration_pose(3, CAL_POSE_3) THEN
+            RETURN;
+        ENDIF
+        
+        IF NOT collect_calibration_pose(4, CAL_POSE_4) THEN
+            RETURN;
+        ENDIF
+        
+        IF NOT collect_calibration_pose(5, CAL_POSE_5) THEN
+            RETURN;
+        ENDIF
+        
+        IF NOT collect_calibration_pose(6, CAL_POSE_6) THEN
+            RETURN;
+        ENDIF
+        
+        IF NOT collect_calibration_pose(7, CAL_POSE_7) THEN
+            RETURN;
+        ENDIF
+        
+        IF NOT collect_calibration_pose(8, CAL_POSE_8) THEN
+            RETURN;
+        ENDIF
+        
+        ! Perform final calibration calculation
         IF NOT hec_calibrate(HEC_PIPELINE_ID \debug:=TRUE) THEN
             ErrWrite \W, "HECError", "Failed to perform calibration";
             RETURN;
@@ -37,44 +64,24 @@ MODULE RcHandEyeCalibrationExample
         ErrWrite \W, "HECError", "Error during hand-eye calibration: " + NumToStr(ERRNO, 0);
     ENDPROC
     
-    FUNC bool set_calibration_poses()
-        ! Set all 8 calibration poses
-        IF NOT hec_set_pose(HEC_PIPELINE_ID, 1, CAL_POSE_1 \debug:=TRUE) THEN
-            RETURN FALSE;
-        ENDIF
+    ! Helper function to move to a pose and collect calibration data
+    FUNC bool collect_calibration_pose(num pose_num, robtarget target)
+        ! Move to calibration pose with high precision
+        MoveJ target, v50, fine, tool0;
         
-        IF NOT hec_set_pose(HEC_PIPELINE_ID, 2, CAL_POSE_2 \debug:=TRUE) THEN
-            RETURN FALSE;
-        ENDIF
+        ! Wait for robot to settle
+        WaitTime 1;
         
-        IF NOT hec_set_pose(HEC_PIPELINE_ID, 3, CAL_POSE_3 \debug:=TRUE) THEN
-            RETURN FALSE;
-        ENDIF
-        
-        IF NOT hec_set_pose(HEC_PIPELINE_ID, 4, CAL_POSE_4 \debug:=TRUE) THEN
-            RETURN FALSE;
-        ENDIF
-        
-        IF NOT hec_set_pose(HEC_PIPELINE_ID, 5, CAL_POSE_5 \debug:=TRUE) THEN
-            RETURN FALSE;
-        ENDIF
-        
-        IF NOT hec_set_pose(HEC_PIPELINE_ID, 6, CAL_POSE_6 \debug:=TRUE) THEN
-            RETURN FALSE;
-        ENDIF
-        
-        IF NOT hec_set_pose(HEC_PIPELINE_ID, 7, CAL_POSE_7 \debug:=TRUE) THEN
-            RETURN FALSE;
-        ENDIF
-        
-        IF NOT hec_set_pose(HEC_PIPELINE_ID, 8, CAL_POSE_8 \debug:=TRUE) THEN
+        ! Set the pose for calibration
+        IF NOT hec_set_pose(HEC_PIPELINE_ID, pose_num, target \debug:=TRUE) THEN
+            ErrWrite \W, "HECError", "Failed to set pose " + NumToStr(pose_num, 0);
             RETURN FALSE;
         ENDIF
         
         RETURN TRUE;
         
     ERROR
-        ErrWrite \W, "HECError", "Error setting calibration poses: " + NumToStr(ERRNO, 0);
+        ErrWrite \W, "HECError", "Error collecting pose " + NumToStr(pose_num, 0) + ": " + NumToStr(ERRNO, 0);
         RETURN FALSE;
     ENDFUNC
     
