@@ -1,7 +1,7 @@
 # Roboception Generic Robot Interface
 ## Robot Side Implementations
 
-This repository contains the official robot-side implementations that demonstrate how to integrate various industrial robot platforms with Roboception's Generic Robot Interface (GRI). The GRI bridges advanced computer vision capabilities—exposed via a powerful REST-API—with industrial robot controllers through a simple and efficient TCP socket communication model.
+This repository contains the official robot-side implementations that demonstrate how to integrate various industrial robot platforms with Roboception's Generic Robot Interface (GRI). The GRI bridges the advanced computer vision capabilities—exposed via Roboception sensors' powerful REST-API—with industrial robot controllers through a simple and efficient TCP socket communication interface.
 
 **Why is this important?**  
 Integrating a REST-API directly into robot controllers poses significant challenges due to diverse programming environments and limited REST support on many platforms. To address this, the GRI consolidates all REST interactions within a Docker container running in UserSpace on Roboception sensors. It employs a fixed-length binary protocol over TCP socket communication, ensuring that interfacing with the vision modules is both standardized and straightforward on any robot supporting TCP/IP.
