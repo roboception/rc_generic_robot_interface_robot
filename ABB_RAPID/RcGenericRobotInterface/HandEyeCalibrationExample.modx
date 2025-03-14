@@ -1,8 +1,18 @@
 MODULE RcHandEyeCalibrationExample
+    ! Hand-Eye Calibration Example Module
+    ! This module demonstrates how to perform hand-eye calibration with the Roboception system.
+    ! The calibration requires at least 8 distinct robot poses where the calibration grid
+    ! is fully visible to the camera from different angles and positions.
+    ! For detailed guidance on optimal calibration poses, refer to:
+    ! https://doc.rc-cube.com/latest/en/handeye_calibration.html#step-3-record-poses
+    
     ! Pipeline ID for hand-eye calibration
     CONST num HEC_PIPELINE_ID := 1;
     
-    ! Calibration poses - these should be different robot poses that give good coverage of the workspace
+    ! Calibration poses - these should be different robot poses that:
+    ! 1. Give good coverage of the workspace
+    ! 2. Provide different viewing angles of the calibration grid
+    ! 3. Ensure the calibration grid is fully visible in each pose
     CONST robtarget CAL_POSE_1 := [[232.4,382.9,885.4],[-0.815,0.568,-0.012,0.116],[0,0,0,0],[9E+09,9E+09,9E+09,9E+09,9E+09,9E+09]];
     CONST robtarget CAL_POSE_2 := [[516.7,373.8,676.2],[0.794,-0.579,-0.181,0.022],[0,0,0,0],[9E+09,9E+09,9E+09,9E+09,9E+09,9E+09]];
     CONST robtarget CAL_POSE_3 := [[-214.2,373.8,676.4],[-0.771,0.505,-0.263,0.285],[0,0,0,0],[9E+09,9E+09,9E+09,9E+09,9E+09,9E+09]];

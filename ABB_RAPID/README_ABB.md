@@ -54,39 +54,43 @@ All functions return `bool` indicating success/failure and have an optional `\de
   - Optional timeout
   - Example: `wait_for_job(1 \delay:=1000 \timeout:=5000)`
 
-## Hand-Eye Calibration
+### Hand-Eye Calibration Functions
 
-The hand-eye calibration process determines the transformation between the robot's flange and the camera system. The implementation is provided in `HandEyeCalibrationExample.modx`.
+The hand-eye calibration determines the transformation between the robot's flange and the camera system. The interface provides three functions for this purpose:
 
-### Calibration Process
-1. Initialize the calibration pipeline using `hec_init`
-2. Move the robot to multiple calibration poses (8 poses recommended)
-3. At each pose:
-   - Use precise movements (fine positioning)
-   - Allow settling time
-   - Record the pose using `hec_set_pose`
-4. Compute final calibration using `hec_calibrate`
+* `hec_init(pipeline_id \debug)`
+  - Initializes the calibration process
+  - Example: `hec_init(1 \debug:=TRUE)`
 
-### Calibration Requirements
-- Use well-distributed poses across the workspace
-- Ensure different orientations at each pose
-- Keep calibration pattern within camera field of view
-- Use fine positioning for accurate pose achievement
+* `hec_set_pose(pipeline_id, slot, pose \debug)`
+  - Records a robot pose for calibration
+  - Example: `hec_set_pose(1, 1, current_pose \debug:=TRUE)`
 
-### Example Usage
-```rapid
-PROC main()
-    socket_connect;
-    
-    IF do_hand_eye_calibration THEN
-        perform_hand_eye_calibration;
-    ENDIF
-    
-    socket_disconnect;
-ERROR
-    socket_disconnect;
-ENDPROC
-```
+* `hec_calibrate(pipeline_id \debug)`
+  - Computes the final calibration
+  - Example: `hec_calibrate(1 \debug:=TRUE)`
+
+#### Calibration Procedure
+
+1. Define at least 8 distinct robot poses where the calibration pattern is fully visible to the camera
+2. Initialize the calibration with `hec_init`
+3. For each calibration pose:
+   - Move the robot to the pose using fine positioning (`MoveJ pose, v50, fine, tool0`)
+   - Allow the robot to settle (e.g., `WaitTime 1`)
+   - Record the pose with `hec_set_pose`
+4. Compute the final calibration with `hec_calibrate`
+
+#### Calibration Best Practices
+
+- Use poses with good distribution across the workspace
+- Include different orientations at each pose
+- Ensure the calibration pattern is fully visible in all poses
+- Use fine positioning for accurate pose recording
+- A minimum of 8 poses is recommended for reliable results
+- The eight poses must be taught in a way that the calibration grid has eight distinct views in the camera
+- For detailed guidance on optimal calibration poses, refer to the Roboception documentation: https://doc.rc-cube.com/latest/en/handeye_calibration.html#step-3-record-poses
+
+See `HandEyeCalibrationExample.modx` for a complete implementation example.
 
 ## Important Notes
 
