@@ -1,0 +1,84 @@
+PROGRAM RC_DEBUG
+
+-- Debugging utilities for the Roboception Generic Robot Interface
+
+%NOLOCKGROUP
+%NOPAUSE = ERROR + COMMAND + TPENABLE
+
+-- Include dependencies
+%INCLUDE RC_CONFIG -- To check configured protocol
+%INCLUDE RC_PROTO
+
+-- Global debug flag (can be changed for debugging)
+CONST
+  DEBUG_ENABLED : BOOLEAN = TRUE
+
+-- Forward declarations for printing specific payloads
+ROUTINE PRINT_RESP_V2(payload : RC_V2_RESP_PAYLOAD) FROM RC_DEBUG
+ROUTINE PRINT_RESP_V3(payload : RC_V3_RESP_PAYLOAD) FROM RC_DEBUG
+
+-- Print Request Details
+ROUTINE PRINT_REQ(action : INTEGER; job_id : INTEGER; current_pos : POSITION;
+                 data1: INTEGER; data2: INTEGER; data3: INTEGER; data4: INTEGER) FROM RC_DEBUG
+BEGIN
+  IF NOT DEBUG_ENABLED THEN RETURN ENDIF
+
+  WRITE TPDISPLAY ('--- Sending Request ---', CR)
+  WRITE TPDISPLAY ('  Action: ', action, CR)
+  WRITE TPDISPLAY ('  Job ID: ', job_id, CR)
+  -- Optionally print position (can be verbose)
+  -- WRITE TPDISPLAY ('  Pos XYZ: (', current_pos.x::3, ', ', current_pos.y::3, ', ', current_pos.z::3, ')', CR)
+  -- WRITE TPDISPLAY ('  Pos WPR: (', current_pos.w::3, ', ', current_pos.p::3, ', ', current_pos.r::3, ')', CR)
+  WRITE TPDISPLAY ('  Data1-4: ', data1, ', ', data2, ', ', data3, ', ', data4, CR)
+  WRITE TPDISPLAY ('-----------------------', CR)
+
+END PRINT_REQ
+
+-- Print V2 Response Payload Details
+ROUTINE PRINT_RESP_V2(payload : RC_V2_RESP_PAYLOAD) FROM RC_DEBUG
+VAR
+  err_str : STRING[80]
+BEGIN
+  IF NOT DEBUG_ENABLED THEN RETURN ENDIF
+
+  GET_ERR_STR(payload.error_code, err_str)
+  WRITE TPDISPLAY ('--- Received Response (V2) ---', CR)
+  WRITE TPDISPLAY ('  Job ID: ', payload.job_id, CR)
+  WRITE TPDISPLAY ('  Error : ', payload.error_code, ' (', err_str, ')', CR)
+  IF payload.error_code = ERR_NO_ERROR THEN
+     WRITE TPDISPLAY ('  Pose XYZ: (', payload.pos_x::3, ', ', payload.pos_y::3, ', ', payload.pos_z::3, ')', CR)
+     WRITE TPDISPLAY ('  Pose Quat: (', payload.rot_1::4, ', ', payload.rot_2::4, ', ', payload.rot_3::4, ', ', payload.rot_4::4, ')', CR)
+     WRITE TPDISPLAY ('  Data1-5: ', payload.data_1, ', ', payload.data_2, ', ', payload.data_3, ', ', payload.data_4, ', ', payload.data_5, CR)
+  ENDIF
+  WRITE TPDISPLAY ('-----------------------------', CR)
+END PRINT_RESP_V2
+
+-- Print V3 Response Payload Details
+ROUTINE PRINT_RESP_V3(payload : RC_V3_RESP_PAYLOAD) FROM RC_DEBUG
+VAR
+  err_str : STRING[80]
+BEGIN
+  IF NOT DEBUG_ENABLED THEN RETURN ENDIF
+
+  GET_ERR_STR(payload.error_code, err_str)
+  WRITE TPDISPLAY ('--- Received Response (V3) ---', CR)
+  WRITE TPDISPLAY ('  Job ID: ', payload.job_id, CR)
+  WRITE TPDISPLAY ('  Error : ', payload.error_code, ' (', err_str, ')', CR)
+  IF payload.error_code = ERR_NO_ERROR THEN
+     WRITE TPDISPLAY ('  Max XYZ: (', payload.max_x::3, ', ', payload.max_y::3, ', ', payload.max_z::3, ')', CR)
+     WRITE TPDISPLAY ('  Mean XYZ: (', payload.mean_x::3, ', ', payload.mean_y::3, ', ', payload.mean_z::3, ')', CR)
+     WRITE TPDISPLAY ('  Min XYZ: (', payload.min_x::3, ', ', payload.min_y::3, ', ', payload.min_z::3, ')', CR)
+     WRITE TPDISPLAY ('  Data1-5: ', payload.data_1, ', ', payload.data_2, ', ', payload.data_3, ', ', payload.data_4, ', ', payload.data_5, CR)
+  ENDIF
+  WRITE TPDISPLAY ('-----------------------------', CR)
+END PRINT_RESP_V3
+
+-- Generic Debug Log Routine
+ROUTINE DEBUG_LOG(module_tag : STRING; message : STRING) FROM RC_DEBUG
+BEGIN
+  IF NOT DEBUG_ENABLED THEN RETURN ENDIF
+
+  WRITE TPDISPLAY ('DEBUG [', module_tag, ']: ', message, CR)
+END DEBUG_LOG
+
+END RC_DEBUG 

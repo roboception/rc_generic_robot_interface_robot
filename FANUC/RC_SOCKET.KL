@@ -1,0 +1,424 @@
+PROGRAM RC_SOCKET
+
+-- Handles low-level TCP/IP socket communication and message packing/unpacking
+-- Supports Protocol V2 and V3 (selectable via RC_CONFIG.PROTOCOL_TO_USE)
+
+%NOLOCKGROUP -- Allow motion during socket comms if needed elsewhere
+%NOPAUSE = ERROR + COMMAND + TPENABLE -- Allow background execution
+
+-- Include definitions from other modules
+%INCLUDE RC_CONFIG
+%INCLUDE RC_PROTO
+
+-- Variables for socket management
+VAR
+  client_file : FILE -- File variable for socket operations
+  client_port_tag : STRING[12] = 'CLT1' -- Unique tag for the client port
+  is_connected : BOOLEAN = FALSE
+  status : INTEGER
+
+-- Forward declarations for packing/unpacking helpers (defined below)
+ROUTINE PACK_FLOAT(value : REAL; VAR byte_array : ARRAY OF BYTE; start_index : INTEGER) FROM RC_SOCKET
+ROUTINE PACK_INT32(value : INTEGER; VAR byte_array : ARRAY OF BYTE; start_index : INTEGER) FROM RC_SOCKET
+ROUTINE PACK_INT8(value : INTEGER; VAR byte_array : ARRAY OF BYTE; index : INTEGER) FROM RC_SOCKET
+FUNCTION UNPACK_FLOAT(byte_array : ARRAY OF BYTE; start_index : INTEGER) : REAL FROM RC_SOCKET
+FUNCTION UNPACK_INT32(byte_array : ARRAY OF BYTE; start_index : INTEGER) : INTEGER FROM RC_SOCKET
+FUNCTION UNPACK_INT8(byte_array : ARRAY OF BYTE; index : INTEGER) : INTEGER FROM RC_SOCKET
+
+-- Forward declarations for protocol-specific unpackers
+ROUTINE RESP_UNPACK_V2(response : ARRAY[RESPONSE_LENGTH_V2] OF BYTE;
+                      VAR payload : RC_V2_RESP_PAYLOAD;
+                      VAR header_ok : BOOLEAN) FROM RC_SOCKET
+ROUTINE RESP_UNPACK_V3(response : ARRAY[RESPONSE_LENGTH_V3] OF BYTE;
+                      VAR payload : RC_V3_RESP_PAYLOAD;
+                      VAR header_ok : BOOLEAN) FROM RC_SOCKET
+
+-- Routine to connect to the server
+ROUTINE SOCKET_CONNECT FROM RC_SOCKET
+VAR
+  ret_val : BOOLEAN
+BEGIN
+  IF is_connected THEN
+    WRITE TPDISPLAY ('Already connected.', CR)
+    RETURN
+  ENDIF
+
+  -- Set up client port tag (optional, could use default)
+  SET_PORT_ATTR(client_port_tag, P_ATR_TAGNAME, client_port_tag, status)
+  IF status <> 0 THEN
+    WRITE TPDISPLAY ('Error setting port tag: ', status, CR)
+    RETURN
+  ENDIF
+
+  -- Set server IP and Port
+  SET_PORT_ATTR(client_port_tag, P_ATR_REMOTE, SERVER_IP, status)
+  IF status <> 0 THEN
+    WRITE TPDISPLAY ('Error setting server IP: ', status, CR)
+    RETURN
+  ENDIF
+  SET_PORT_ATTR(client_port_tag, P_ATR_PORT, SERVER_PORT, status)
+  IF status <> 0 THEN
+    WRITE TPDISPLAY ('Error setting server port: ', status, CR)
+    RETURN
+  ENDIF
+
+  -- Open the client port
+  WRITE TPDISPLAY ('Connecting to ', SERVER_IP, ':', SERVER_PORT, '...', CR)
+  client_file.FILE_NAME = client_port_tag
+  client_file.OPEN_MODE = O_RDWR -- Read/Write access
+  client_file.FILE_TYPE = F_SOCKET_DEV -- Socket device
+  OPEN FILE client_file ('RW', status)
+
+  IF status = 0 THEN
+    is_connected = TRUE
+    WRITE TPDISPLAY ('Connected.', CR)
+  ELSE
+    is_connected = FALSE
+    WRITE TPDISPLAY ('Connection failed. Error: ', status, CR)
+    -- Optionally add more specific error handling based on status codes
+  ENDIF
+
+END SOCKET_CONNECT
+
+-- Routine to disconnect from the server
+ROUTINE SOCKET_DISCONNECT FROM RC_SOCKET
+BEGIN
+  IF is_connected THEN
+    CLOSE FILE client_file(status)
+    IF status <> 0 THEN
+      WRITE TPDISPLAY ('Error closing socket: ', status, CR)
+    ELSE
+      WRITE TPDISPLAY ('Disconnected.', CR)
+    ENDIF
+    is_connected = FALSE
+  ELSE
+    WRITE TPDISPLAY ('Not connected.', CR)
+  ENDIF
+END SOCKET_DISCONNECT
+
+-- Routine to send request and receive response
+-- Returns TRUE on success (response received and length matches), FALSE otherwise
+FUNCTION SOCKET_SEND_RECV(request : ARRAY[REQUEST_LENGTH] OF BYTE;
+                          VAR response : ARRAY OF BYTE; -- Generic byte array for response
+                          expected_resp_len : INTEGER) : BOOLEAN FROM RC_SOCKET
+VAR
+  bytes_written : INTEGER
+  bytes_read : INTEGER
+  read_timeout : INTEGER
+  read_status : INTEGER
+BEGIN
+  IF NOT is_connected THEN
+    WRITE TPDISPLAY ('Comm Error: Not connected.', CR)
+    RETURN (FALSE)
+  ENDIF
+
+  -- Send request (always REQUEST_LENGTH)
+  WRITE client_file(request, bytes_written, status)
+  IF status <> 0 OR bytes_written <> REQUEST_LENGTH THEN
+    WRITE TPDISPLAY ('Send Error: ', status, ', Bytes: ', bytes_written, CR)
+    RETURN (FALSE)
+  ENDIF
+
+  -- Receive response (expecting specific length)
+  read_timeout = SERVER_TIMEOUT
+  SET_TIMEOUT(client_file, read_timeout, read_status)
+  IF read_status <> 0 THEN
+     WRITE TPDISPLAY ('Error setting timeout: ', read_status, CR)
+  ENDIF
+
+  -- Read exactly the expected number of bytes
+  READ client_file(response, expected_resp_len, bytes_read, status)
+
+  IF status = 0 THEN
+    IF bytes_read = expected_resp_len THEN
+      RETURN (TRUE) -- Success
+    ELSE
+      WRITE TPDISPLAY ('Recv Error: Invalid length ', bytes_read, '/', expected_resp_len, CR)
+      RETURN (FALSE)
+    ENDIF
+  ELSE
+    -- Check for timeout specifically (implementation might vary)
+    -- Check FANUC Docs for E_TIMEOUT, E_SOCKCLOSED etc.
+    -- Example:
+    -- IF status = E_TIMEOUT THEN 
+    --   WRITE TPDISPLAY ('Recv Timeout.', CR)
+    -- ELSEIF status = E_SOCKCLOSED THEN 
+    --   WRITE TPDISPLAY ('Recv Error: Socket closed.', CR)
+    --   is_connected = FALSE -- Update connection state
+    -- ELSE
+      WRITE TPDISPLAY ('Recv Error: ', status, CR)
+    -- ENDIF
+    RETURN (FALSE)
+  ENDIF
+
+END SOCKET_SEND_RECV
+
+-- Routine to pack request data into byte array (V3 Request - 50 bytes)
+ROUTINE REQ_PACK(action : INTEGER; job_id : INTEGER; current_pos : POSITION;
+                data1: INTEGER; data2: INTEGER; data3: INTEGER; data4: INTEGER;
+                VAR request : ARRAY[REQUEST_LENGTH] OF BYTE) FROM RC_SOCKET
+VAR
+  i : INTEGER
+  protocol_ver_to_send : INTEGER
+BEGIN
+  -- Determine protocol version based on config
+  IF PROTOCOL_TO_USE = 2 THEN
+     protocol_ver_to_send = PROTOCOL_VERSION_V2
+  ELSE -- Default to V3 if config is invalid or set to 3
+     protocol_ver_to_send = PROTOCOL_VERSION_V3
+     IF PROTOCOL_TO_USE <> 3 THEN
+       WRITE TPDISPLAY ('WARN: Invalid PROTOCOL_TO_USE, defaulting to V3.', CR)
+     ENDIF
+  ENDIF
+
+  -- Clear byte array (optional, but good practice)
+  FOR i = 1 TO REQUEST_LENGTH DO
+    request[i] = 0
+  ENDFOR
+
+  -- Pack Header (Bytes 0-5 -> Indices 1-6)
+  PACK_INT8(MAGIC_NUMBER, request, 1)           -- Magic Number
+  PACK_INT8(protocol_ver_to_send, request, 2)   -- Protocol Version (V2 or V3)
+  PACK_INT8(REQUEST_LENGTH, request, 3)         -- Message Length
+  PACK_INT8(POSE_FORMAT_MM_QUAT, request, 4)    -- Pose Format
+  PACK_INT8(action, request, 5)                 -- Action
+  PACK_INT8(job_id, request, 6)                 -- Job ID
+
+  -- Pack Position (Bytes 6-33 -> Indices 7-34) - Assuming XYZWPR Position
+  -- Protocol uses mm and Quaternion (Q1-Q4). Requires conversion.
+  -- Using XYZ for now. WPR/Quaternion needs specific handling.
+  -- !! Placeholder: Need conversion from POSITION to mm/Quaternion bytes !!
+  PACK_FLOAT(current_pos.x, request, 7)   -- X (Bytes 6-9)
+  PACK_FLOAT(current_pos.y, request, 11)  -- Y (Bytes 10-13)
+  PACK_FLOAT(current_pos.z, request, 15)  -- Z (Bytes 14-17)
+  -- Pack Quaternion (Bytes 18-33)
+  PACK_FLOAT(0.0, request, 19) -- Q1 Placeholder
+  PACK_FLOAT(0.0, request, 23) -- Q2 Placeholder
+  PACK_FLOAT(0.0, request, 27) -- Q3 Placeholder
+  PACK_FLOAT(1.0, request, 31) -- Q4 Placeholder (Identity Quaternion)
+
+  -- Pack Additional Data (Bytes 34-49 -> Indices 35-50) - Assuming 32-bit unsigned integer
+  PACK_INT32(data1, request, 35) -- Data 1 (Bytes 34-37)
+  PACK_INT32(data2, request, 39) -- Data 2 (Bytes 38-41)
+  PACK_INT32(data3, request, 43) -- Data 3 (Bytes 42-45)
+  PACK_INT32(data4, request, 47) -- Data 4 (Bytes 46-49)
+
+END REQ_PACK
+
+-- Unpack V2 Response (55 bytes)
+ROUTINE RESP_UNPACK_V2(response : ARRAY[RESPONSE_LENGTH_V2] OF BYTE;
+                      VAR payload : RC_V2_RESP_PAYLOAD;
+                      VAR header_ok : BOOLEAN) FROM RC_SOCKET
+VAR
+  magic, proto_ver, msg_len, pose_fmt : INTEGER
+BEGIN
+  header_ok = FALSE
+
+  -- Unpack Header (Bytes 0-4 -> Indices 1-5)
+  magic = UNPACK_INT8(response, 1)
+  proto_ver = UNPACK_INT8(response, 2)
+  msg_len = UNPACK_INT8(response, 3)
+  pose_fmt = UNPACK_INT8(response, 4)
+  -- Action byte (index 5) is part of header but not payload struct
+
+  -- Validate Header
+  IF (magic <> MAGIC_NUMBER) OR (proto_ver <> PROTOCOL_VERSION_V2) OR (msg_len <> RESPONSE_LENGTH_V2) THEN
+    WRITE TPDISPLAY ('Resp V2 Err: Invalid Hdr (M:', magic, ' V:', proto_ver, ' L:', msg_len, ')', CR)
+    RETURN
+  ENDIF
+  header_ok = TRUE
+
+  -- Unpack Payload (Bytes 5-54 -> Indices 6-55)
+  payload.job_id = UNPACK_INT8(response, 6)        -- Job ID (Byte 5)
+  payload.error_code = UNPACK_INT8(response, 7)    -- Error Code (Byte 6)
+
+  -- Unpack Pose (Bytes 7-34 -> Indices 8-35)
+  payload.pos_x = UNPACK_FLOAT(response, 8)       -- Pos X
+  payload.pos_y = UNPACK_FLOAT(response, 12)      -- Pos Y
+  payload.pos_z = UNPACK_FLOAT(response, 16)      -- Pos Z
+  payload.rot_1 = UNPACK_FLOAT(response, 20)      -- Rot 1 (Q1)
+  payload.rot_2 = UNPACK_FLOAT(response, 24)      -- Rot 2 (Q2)
+  payload.rot_3 = UNPACK_FLOAT(response, 28)      -- Rot 3 (Q3)
+  payload.rot_4 = UNPACK_FLOAT(response, 32)      -- Rot 4 (Q4)
+
+  -- Unpack Additional Data (Bytes 35-54 -> Indices 36-55)
+  payload.data_1 = UNPACK_INT32(response, 36)     -- Data 1
+  payload.data_2 = UNPACK_INT32(response, 40)     -- Data 2
+  payload.data_3 = UNPACK_INT32(response, 44)     -- Data 3
+  payload.data_4 = UNPACK_INT32(response, 48)     -- Data 4
+  payload.data_5 = UNPACK_INT32(response, 52)     -- Data 5
+
+END RESP_UNPACK_V2
+
+-- Unpack V3 Response (63 bytes)
+ROUTINE RESP_UNPACK_V3(response : ARRAY[RESPONSE_LENGTH_V3] OF BYTE;
+                      VAR payload : RC_V3_RESP_PAYLOAD;
+                      VAR header_ok : BOOLEAN) FROM RC_SOCKET
+VAR
+  magic, proto_ver, msg_len, pose_fmt : INTEGER
+BEGIN
+  header_ok = FALSE
+
+  -- Unpack Header (Bytes 0-4 -> Indices 1-5)
+  magic = UNPACK_INT8(response, 1)
+  proto_ver = UNPACK_INT8(response, 2)
+  msg_len = UNPACK_INT8(response, 3)
+  pose_fmt = UNPACK_INT8(response, 4)
+  -- Action byte (index 5) is part of header but not payload struct
+
+  -- Validate Header
+  IF (magic <> MAGIC_NUMBER) OR (proto_ver <> PROTOCOL_VERSION_V3) OR (msg_len <> RESPONSE_LENGTH_V3) THEN
+    WRITE TPDISPLAY ('Resp V3 Err: Invalid Hdr (M:', magic, ' V:', proto_ver, ' L:', msg_len, ')', CR)
+    RETURN
+  ENDIF
+  header_ok = TRUE
+
+  -- Unpack Payload (Bytes 5-62 -> Indices 6-63)
+  payload.job_id = UNPACK_INT8(response, 6)        -- Job ID (Byte 5)
+  payload.error_code = UNPACK_INT8(response, 7)    -- Error Code (Byte 6)
+
+  -- Unpack Min/Mean/Max Points (Bytes 7-42 -> Indices 8-43)
+  payload.max_x = UNPACK_FLOAT(response, 8)       -- Max X
+  payload.max_y = UNPACK_FLOAT(response, 12)      -- Max Y
+  payload.max_z = UNPACK_FLOAT(response, 16)      -- Max Z
+  payload.mean_x = UNPACK_FLOAT(response, 20)     -- Mean X
+  payload.mean_y = UNPACK_FLOAT(response, 24)     -- Mean Y
+  payload.mean_z = UNPACK_FLOAT(response, 28)     -- Mean Z
+  payload.min_x = UNPACK_FLOAT(response, 32)      -- Min X
+  payload.min_y = UNPACK_FLOAT(response, 36)      -- Min Y
+  payload.min_z = UNPACK_FLOAT(response, 40)      -- Min Z
+
+  -- Unpack Additional Data (Bytes 43-62 -> Indices 44-63)
+  payload.data_1 = UNPACK_INT32(response, 44)     -- Data 1
+  payload.data_2 = UNPACK_INT32(response, 48)     -- Data 2
+  payload.data_3 = UNPACK_INT32(response, 52)     -- Data 3
+  payload.data_4 = UNPACK_INT32(response, 56)     -- Data 4
+  payload.data_5 = UNPACK_INT32(response, 60)     -- Data 5
+
+END RESP_UNPACK_V3
+
+
+-- Helper Routines for Byte Packing/Unpacking --
+-- These are placeholders and need proper implementation based on
+-- FANUC capabilities or custom logic for IEEE 754 Little Endian.
+
+-- Pack REAL (4 bytes, IEEE 754 Little Endian) - Placeholder
+ROUTINE PACK_FLOAT(value : REAL; VAR byte_array : ARRAY OF BYTE; start_index : INTEGER) FROM RC_SOCKET
+BEGIN
+  -- TODO: Implement REAL to 4-byte conversion (IEEE 754 Little Endian)
+  -- This is non-trivial in standard Karel. Might require specific library or manual bit manipulation.
+  byte_array[start_index] = 0
+  byte_array[start_index+1] = 0
+  byte_array[start_index+2] = 0
+  byte_array[start_index+3] = 0
+  -- WRITE TPDISPLAY ('WARN: PACK_FLOAT not implemented!', CR) -- Avoid spamming logs
+END PACK_FLOAT
+
+-- Pack INTEGER (4 bytes, Signed Little Endian) - Placeholder for Int32
+ROUTINE PACK_INT32(value : INTEGER; VAR byte_array : ARRAY OF BYTE; start_index : INTEGER) FROM RC_SOCKET
+VAR
+  b1, b2, b3, b4 : INTEGER
+BEGIN
+  -- Assuming standard Karel INTEGER can hold 32 bits and handles negatives.
+  -- Little Endian: LSB first
+  b1 = value BAND 255
+  b2 = (value SHR 8) BAND 255
+  b3 = (value SHR 16) BAND 255
+  b4 = (value SHR 24) BAND 255
+  -- Use SET_BYTE for potentially better performance/correctness if available
+  -- SET_BYTE(byte_array, start_index, b1, status)
+  -- SET_BYTE(byte_array, start_index+1, b2, status)
+  -- SET_BYTE(byte_array, start_index+2, b3, status)
+  -- SET_BYTE(byte_array, start_index+3, b4, status)
+  -- Using CHR conversion as a fallback
+  byte_array[start_index]   = CHR_TO_INT(INT_TO_CHR(b1)) -- Convert via CHR to get byte value
+  byte_array[start_index+1] = CHR_TO_INT(INT_TO_CHR(b2))
+  byte_array[start_index+2] = CHR_TO_INT(INT_TO_CHR(b3))
+  byte_array[start_index+3] = CHR_TO_INT(INT_TO_CHR(b4))
+END PACK_INT32
+
+-- Pack INTEGER (1 byte, Signed) - Simple conversion
+ROUTINE PACK_INT8(value : INTEGER; VAR byte_array : ARRAY OF BYTE; index : INTEGER) FROM RC_SOCKET
+VAR
+  temp_val : INTEGER
+BEGIN
+  temp_val = value
+  -- Clamp value to signed 8-bit range (-128 to 127)
+  IF temp_val > 127 THEN
+    temp_val = 127
+    WRITE TPDISPLAY ('WARN: Clamping Int8 value > 127', CR)
+  ELSIF temp_val < -128 THEN
+    temp_val = -128
+    WRITE TPDISPLAY ('WARN: Clamping Int8 value < -128', CR)
+  ENDIF
+  -- Use SET_BYTE if available
+  -- SET_BYTE(byte_array, index, temp_val, status)
+  -- Using CHR conversion as a fallback
+  byte_array[index] = CHR_TO_INT(INT_TO_CHR(temp_val BAND 255))
+END PACK_INT8
+
+-- Unpack REAL (4 bytes, IEEE 754 Little Endian) - Placeholder
+FUNCTION UNPACK_FLOAT(byte_array : ARRAY OF BYTE; start_index : INTEGER) : REAL FROM RC_SOCKET
+BEGIN
+  -- TODO: Implement 4-byte (Little Endian) to REAL conversion (IEEE 754)
+  -- This is non-trivial in standard Karel.
+  -- WRITE TPDISPLAY ('WARN: UNPACK_FLOAT not implemented!', CR) -- Avoid spamming logs
+  RETURN (0.0)
+END UNPACK_FLOAT
+
+-- Unpack INTEGER (4 bytes, Signed Little Endian) - Placeholder for Int32
+FUNCTION UNPACK_INT32(byte_array : ARRAY OF BYTE; start_index : INTEGER) : INTEGER FROM RC_SOCKET
+VAR
+  b1, b2, b3, b4 : INTEGER
+  result : INTEGER
+BEGIN
+  -- Use GET_BYTE if available
+  -- GET_BYTE(byte_array, start_index, b1, status)
+  -- GET_BYTE(byte_array, start_index+1, b2, status)
+  -- GET_BYTE(byte_array, start_index+2, b3, status)
+  -- GET_BYTE(byte_array, start_index+3, b4, status)
+  -- Using direct array access as fallback
+  b1 = byte_array[start_index]
+  b2 = byte_array[start_index+1]
+  b3 = byte_array[start_index+2]
+  b4 = byte_array[start_index+3]
+  
+  -- Combine bytes (Little Endian)
+  result = b1 + (b2 SHL 8) + (b3 SHL 16) + (b4 SHL 24)
+  
+  -- Handle sign extension for 32-bit signed value if needed
+  -- Check if the most significant bit (bit 7 of b4) is set
+  IF (b4 BAND 128) <> 0 THEN
+      -- Perform sign extension manually if Karel doesn't handle it implicitly
+      -- This depends on how Karel treats shifts and combinations for negative numbers.
+      -- A common way is to subtract 2^32 if the sign bit is set, but Karel might lack 64-bit intermediates.
+      -- Alternative: Check if result > (2^31 - 1), then subtract 2^32. Requires large integer support.
+      -- Simpler check (might work depending on Karel's integer representation):
+      IF result > 2147483647 THEN -- Max positive 32-bit signed int
+         result = result - 4294967296 -- 2^32 (Requires careful testing on target system)
+      ENDIF
+      -- It might be safer to handle this via specific bitwise operations or rely on potential GET_SINT library functions.
+      WRITE TPDISPLAY ('WARN: Potential issue with negative UNPACK_INT32', CR)
+  ENDIF
+  RETURN (result)
+END UNPACK_INT32
+
+-- Unpack INTEGER (1 byte, Signed)
+FUNCTION UNPACK_INT8(byte_array : ARRAY OF BYTE; index : INTEGER) : INTEGER FROM RC_SOCKET
+VAR
+  byte_val : INTEGER
+BEGIN
+  -- Use GET_BYTE if available
+  -- GET_BYTE(byte_array, index, byte_val, status)
+  -- Using direct array access as fallback
+  byte_val = byte_array[index]
+  
+  -- Handle sign extension for 8-bit signed value
+  IF byte_val >= 128 THEN
+    RETURN (byte_val - 256)
+  ELSE
+    RETURN (byte_val)
+  ENDIF
+END UNPACK_INT8
+
+END RC_SOCKET 

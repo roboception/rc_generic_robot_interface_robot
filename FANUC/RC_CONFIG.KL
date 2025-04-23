@@ -1,0 +1,11 @@
+PROGRAM RC_CONFIG
+
+-- Configuration settings for the Roboception Generic Robot Interface
+
+CONST
+  SERVER_IP : STRING[15] = '1.2.3.4'  -- IP address of the rc_visard or interface server
+  SERVER_PORT : INTEGER = 10000       -- TCP port for the interface server
+  SERVER_TIMEOUT : INTEGER = 5000     -- Socket communication timeout in milliseconds
+  PROTOCOL_TO_USE : INTEGER = 3       -- Protocol Version to use (2 or 3)
+
+END RC_CONFIG 

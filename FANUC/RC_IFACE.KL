@@ -1,0 +1,391 @@
+PROGRAM RC_IFACE
+
+-- High-level interface routines for interacting with the Roboception sensor
+-- Supports Protocol V2 and V3 (selectable via RC_CONFIG.PROTOCOL_TO_USE)
+
+%NOLOCKGROUP
+%NOPAUSE = ERROR + COMMAND + TPENABLE
+
+-- Include dependencies
+%INCLUDE RC_CONFIG
+%INCLUDE RC_PROTO
+%INCLUDE RC_SOCKET
+%INCLUDE RC_DEBUG
+
+-- Global variable for default/null position
+VAR
+  null_pos : POSITION
+
+-- Forward declarations
+ROUTINE WAIT_FOR_JOB(job_id : INTEGER; delay_ms : INTEGER; timeout_ms : INTEGER; debug : BOOLEAN;
+                    VAR final_status : INTEGER; VAR error_code : INTEGER) FROM RC_IFACE
+
+
+-- Initialize null position
+ROUTINE INIT_RC_IFACE FROM RC_IFACE
+BEGIN
+  null_pos = POS(0,0,0,0,0,0)
+END INIT_RC_IFACE
+
+
+-- Connect to the server
+ROUTINE RC_CONNECT FROM RC_IFACE
+BEGIN
+  SOCKET_CONNECT
+END RC_CONNECT
+
+-- Disconnect from the server
+ROUTINE RC_DISCONNECT FROM RC_IFACE
+BEGIN
+  SOCKET_DISCONNECT
+END RC_DISCONNECT
+
+
+-- Internal routine to handle the generic call sequence
+-- This now handles sending the request and receiving the response,
+-- but unpacking and interpretation is done by the calling function.
+-- Returns: server error code (from header if available, else comms error)
+-- Outputs: success (if send/recv ok), response (raw bytes), header_ok (if header was read)
+FUNCTION RC_GENERIC_CALL_CORE(action : INTEGER; job_id : INTEGER; current_pos : POSITION;
+                              data1: INTEGER; data2: INTEGER; data3: INTEGER; data4: INTEGER;
+                              VAR response_v2 : ARRAY[RESPONSE_LENGTH_V2] OF BYTE; -- Buffer for V2
+                              VAR response_v3 : ARRAY[RESPONSE_LENGTH_V3] OF BYTE; -- Buffer for V3
+                              VAR bytes_received : INTEGER; -- Actual bytes received
+                              VAR success : BOOLEAN;
+                              debug : BOOLEAN) : INTEGER -- Returns primary error code
+VAR
+  request : ARRAY[REQUEST_LENGTH] OF BYTE
+  send_recv_ok : BOOLEAN
+  expected_len : INTEGER
+  protocol_used : INTEGER
+  return_error : INTEGER = ERR_INTERNAL_ERROR -- Default error
+BEGIN
+  success = FALSE
+  bytes_received = 0
+  protocol_used = PROTOCOL_TO_USE -- Get configured protocol
+
+  -- Determine expected response length
+  IF protocol_used = 2 THEN
+    expected_len = RESPONSE_LENGTH_V2
+  ELSIF protocol_used = 3 THEN
+    expected_len = RESPONSE_LENGTH_V3
+  ELSE
+    WRITE TPDISPLAY ('RC Call Error: Invalid PROTOCOL_TO_USE configured (', protocol_used, ')', CR)
+    RETURN (ERR_INTERNAL_ERROR) -- Config error
+  ENDIF
+
+  -- 1. Pack Request (uses configured protocol version)
+  REQ_PACK(action, job_id, current_pos, data1, data2, data3, data4, request)
+
+  -- 2. Print Request Details (if debug enabled)
+  IF debug THEN
+    PRINT_REQ(action, job_id, current_pos, data1, data2, data3, data4)
+  ENDIF
+
+  -- 3. Send Request and Receive Response (using correct buffer based on expected length)
+  IF protocol_used = 2 THEN
+     send_recv_ok = SOCKET_SEND_RECV(request, response_v2, expected_len)
+     IF send_recv_ok THEN bytes_received = expected_len ENDIF
+  ELSE -- protocol_used = 3
+     send_recv_ok = SOCKET_SEND_RECV(request, response_v3, expected_len)
+     IF send_recv_ok THEN bytes_received = expected_len ENDIF
+  ENDIF
+
+
+  IF NOT send_recv_ok THEN
+    WRITE TPDISPLAY ('RC Call Error: Send/Receive failed.', CR)
+    return_error = ERR_API_NOT_REACHABLE
+    RETURN (return_error)
+  ENDIF
+
+  -- If send/receive was ok, basic success is true.
+  -- Further validation (header, error code) happens in the caller.
+  success = TRUE
+  -- We don't unpack or check errors here; caller handles protocol-specifics
+  return_error = ERR_NO_ERROR -- Indicate communication success, caller checks payload error
+
+  RETURN (return_error)
+
+END RC_GENERIC_CALL_CORE
+
+
+-- Get Server Status
+-- Returns: Actual error code from the server response
+FUNCTION RC_GET_STATUS(debug : BOOLEAN) : INTEGER FROM RC_IFACE
+VAR
+  response_v2 : ARRAY[RESPONSE_LENGTH_V2] OF BYTE
+  response_v3 : ARRAY[RESPONSE_LENGTH_V3] OF BYTE
+  payload_v2 : RC_V2_RESP_PAYLOAD
+  payload_v3 : RC_V3_RESP_PAYLOAD
+  call_success : BOOLEAN
+  header_ok : BOOLEAN
+  bytes_recvd : INTEGER
+  comm_error : INTEGER
+BEGIN
+  comm_error = RC_GENERIC_CALL_CORE(ACT_STATUS, 0, null_pos, 0, 0, 0, 0,
+                                   response_v2, response_v3, bytes_recvd, call_success, debug)
+
+  IF NOT call_success THEN
+    RETURN (comm_error) -- Return communication error
+  ENDIF
+
+  -- Unpack based on configured protocol
+  IF PROTOCOL_TO_USE = 2 THEN
+    RESP_UNPACK_V2(response_v2, payload_v2, header_ok)
+    IF debug THEN PRINT_RESP_V2(payload_v2) ENDIF
+    IF header_ok THEN RETURN (payload_v2.error_code) ELSE RETURN (ERR_API_RESPONSE_ERROR) ENDIF
+  ELSE -- PROTOCOL_TO_USE = 3
+    RESP_UNPACK_V3(response_v3, payload_v3, header_ok)
+    IF debug THEN PRINT_RESP_V3(payload_v3) ENDIF
+    IF header_ok THEN RETURN (payload_v3.error_code) ELSE RETURN (ERR_API_RESPONSE_ERROR) ENDIF
+  ENDIF
+
+END RC_GET_STATUS
+
+
+-- Trigger Job Asynchronously
+-- Returns: Error code from the server response after sending the request
+FUNCTION RC_TRIG_JOB_ASYNC(job_id : INTEGER; debug : BOOLEAN) : INTEGER FROM RC_IFACE
+VAR
+  response_v2 : ARRAY[RESPONSE_LENGTH_V2] OF BYTE
+  response_v3 : ARRAY[RESPONSE_LENGTH_V3] OF BYTE
+  payload_v2 : RC_V2_RESP_PAYLOAD
+  payload_v3 : RC_V3_RESP_PAYLOAD
+  call_success : BOOLEAN
+  header_ok : BOOLEAN
+  bytes_recvd : INTEGER
+  comm_error : INTEGER
+  current_robot_pos : POSITION
+BEGIN
+  current_robot_pos = null_pos -- Or CURPOS, etc.
+
+  comm_error = RC_GENERIC_CALL_CORE(ACT_TRIG_JOB_ASYNC, job_id, current_robot_pos, 0, 0, 0, 0,
+                                   response_v2, response_v3, bytes_recvd, call_success, debug)
+
+  IF NOT call_success THEN
+    RETURN (comm_error)
+  ENDIF
+
+  -- Unpack based on configured protocol
+  IF PROTOCOL_TO_USE = 2 THEN
+    RESP_UNPACK_V2(response_v2, payload_v2, header_ok)
+    IF debug THEN PRINT_RESP_V2(payload_v2) ENDIF
+    IF header_ok THEN RETURN (payload_v2.error_code) ELSE RETURN (ERR_API_RESPONSE_ERROR) ENDIF
+  ELSE -- PROTOCOL_TO_USE = 3
+    RESP_UNPACK_V3(response_v3, payload_v3, header_ok)
+    IF debug THEN PRINT_RESP_V3(payload_v3) ENDIF
+    IF header_ok THEN RETURN (payload_v3.error_code) ELSE RETURN (ERR_API_RESPONSE_ERROR) ENDIF
+  ENDIF
+END RC_TRIG_JOB_ASYNC
+
+
+-- Get Job Status
+-- Returns: Job status (e.g., JOB_STATUS_DONE)
+-- Outputs: error_code (from server response payload)
+FUNCTION RC_GET_JOB_STAT(job_id : INTEGER; VAR error_code : INTEGER; debug : BOOLEAN) : INTEGER FROM RC_IFACE
+VAR
+  response_v2 : ARRAY[RESPONSE_LENGTH_V2] OF BYTE
+  response_v3 : ARRAY[RESPONSE_LENGTH_V3] OF BYTE
+  payload_v2 : RC_V2_RESP_PAYLOAD
+  payload_v3 : RC_V3_RESP_PAYLOAD
+  call_success : BOOLEAN
+  header_ok : BOOLEAN
+  bytes_recvd : INTEGER
+  comm_error : INTEGER
+BEGIN
+  error_code = ERR_INTERNAL_ERROR -- Default
+
+  comm_error = RC_GENERIC_CALL_CORE(ACT_GET_JOB_STATUS, job_id, null_pos, 0, 0, 0, 0,
+                                   response_v2, response_v3, bytes_recvd, call_success, debug)
+
+  IF NOT call_success THEN
+     error_code = comm_error
+     RETURN (JOB_STATUS_UNKNOWN)
+  ENDIF
+
+  -- Unpack based on configured protocol
+  IF PROTOCOL_TO_USE = 2 THEN
+    RESP_UNPACK_V2(response_v2, payload_v2, header_ok)
+    IF debug THEN PRINT_RESP_V2(payload_v2) ENDIF
+    IF header_ok THEN
+       error_code = payload_v2.error_code
+       IF error_code = ERR_NO_ERROR THEN RETURN (payload_v2.data_1) ELSE RETURN (JOB_STATUS_UNKNOWN) ENDIF
+    ELSE
+       error_code = ERR_API_RESPONSE_ERROR
+       RETURN (JOB_STATUS_UNKNOWN)
+    ENDIF
+  ELSE -- PROTOCOL_TO_USE = 3
+    RESP_UNPACK_V3(response_v3, payload_v3, header_ok)
+    IF debug THEN PRINT_RESP_V3(payload_v3) ENDIF
+    IF header_ok THEN
+       error_code = payload_v3.error_code
+       IF error_code = ERR_NO_ERROR THEN RETURN (payload_v3.data_1) ELSE RETURN (JOB_STATUS_UNKNOWN) ENDIF
+    ELSE
+       error_code = ERR_API_RESPONSE_ERROR
+       RETURN (JOB_STATUS_UNKNOWN)
+    ENDIF
+  ENDIF
+END RC_GET_JOB_STAT
+
+
+-- Helper routine to wait for a job to complete
+ROUTINE WAIT_FOR_JOB(job_id : INTEGER; delay_ms : INTEGER; timeout_ms : INTEGER; debug : BOOLEAN;
+                    VAR final_status : INTEGER; VAR error_code : INTEGER) FROM RC_IFACE
+VAR
+  start_time : INTEGER
+  elapsed_time : INTEGER = 0
+  current_status : INTEGER
+  loop_error_code : INTEGER
+BEGIN
+  start_time = CLOCK
+
+  REPEAT
+    current_status = RC_GET_JOB_STAT(job_id, loop_error_code, debug)
+    error_code = loop_error_code -- Store the latest error code
+
+    IF (current_status = JOB_STATUS_DONE) OR (current_status = JOB_STATUS_FAILED) OR (error_code <> ERR_NO_ERROR) THEN
+      final_status = current_status
+      RETURN
+    ENDIF
+
+    DELAY delay_ms
+
+    elapsed_time = CLOCK - start_time
+    IF (timeout_ms > 0) AND (elapsed_time >= timeout_ms) THEN
+       error_code = ERR_PROCESSING_TIMEOUT
+       final_status = JOB_STATUS_UNKNOWN
+       WRITE TPDISPLAY ('Wait for Job Timeout (', job_id, ')', CR)
+       RETURN
+    ENDIF
+
+  UNTIL FALSE
+
+END WAIT_FOR_JOB
+
+
+-- Trigger Job Synchronously
+-- Triggers a job, waits for completion, and returns the final status & error code.
+ROUTINE RC_TRIG_JOB_SYNC(job_id : INTEGER; VAR final_status : INTEGER; VAR error_code : INTEGER;
+                         wait_delay_ms : INTEGER; wait_timeout_ms : INTEGER; debug : BOOLEAN) FROM RC_IFACE
+VAR
+  trigger_err : INTEGER
+BEGIN
+  trigger_err = RC_TRIG_JOB_ASYNC(job_id, debug)
+
+  IF trigger_err <> ERR_NO_ERROR THEN
+    error_code = trigger_err
+    final_status = JOB_STATUS_FAILED
+    WRITE TPDISPLAY ('Sync Trigger Failed (', job_id, '): ', trigger_err, CR)
+    RETURN
+  ENDIF
+
+  WAIT_FOR_JOB(job_id, wait_delay_ms, wait_timeout_ms, debug, final_status, error_code)
+
+END RC_TRIG_JOB_SYNC
+
+
+-- Get Measurement Data (Min/Mean/Max Points) - V3 ONLY
+-- Returns: TRUE on success, FALSE otherwise
+-- Outputs: measurement_data, error_code
+FUNCTION RC_GET_MEASUREMENTS(job_id : INTEGER; VAR measurement_data : RC_V3_RESP_PAYLOAD;
+                           VAR error_code : INTEGER; debug : BOOLEAN) : BOOLEAN FROM RC_IFACE
+VAR
+  response_v2 : ARRAY[RESPONSE_LENGTH_V2] OF BYTE -- Buffer needed but unused
+  response_v3 : ARRAY[RESPONSE_LENGTH_V3] OF BYTE
+  call_success : BOOLEAN
+  header_ok : BOOLEAN
+  bytes_recvd : INTEGER
+  comm_error : INTEGER
+BEGIN
+  error_code = ERR_INTERNAL_ERROR -- Default
+
+  -- Check if configured protocol is V3
+  IF PROTOCOL_TO_USE <> 3 THEN
+      WRITE TPDISPLAY ('RC Error: RC_GET_MEASUREMENTS requires Protocol V3 to be configured.', CR)
+      error_code = ERR_UNKNOWN_PROTOCOL_VERSION -- Or other suitable error
+      RETURN (FALSE)
+  ENDIF
+
+  comm_error = RC_GENERIC_CALL_CORE(ACT_GET_NEXT_POSE, job_id, null_pos, 0, 0, 0, 0,
+                                   response_v2, response_v3, bytes_recvd, call_success, debug)
+
+  IF NOT call_success THEN
+     error_code = comm_error
+     RETURN (FALSE)
+  ENDIF
+
+  -- Unpack V3 response
+  RESP_UNPACK_V3(response_v3, measurement_data, header_ok)
+  IF debug THEN PRINT_RESP_V3(measurement_data) ENDIF
+
+  IF header_ok THEN
+     error_code = measurement_data.error_code
+     RETURN (error_code = ERR_NO_ERROR)
+  ELSE
+     error_code = ERR_API_RESPONSE_ERROR
+     RETURN (FALSE)
+  ENDIF
+
+END RC_GET_MEASUREMENTS
+
+
+-- Get Next Pose (XYZ + Quaternion/WPR) - V2 ONLY
+-- Returns: TRUE on success, FALSE otherwise
+-- Outputs: pose_data, last_pose flag, error_code
+FUNCTION RC_GET_NEXT_POSE(job_id : INTEGER; VAR pose_data : POSITION; VAR last_pose : BOOLEAN;
+                        VAR error_code : INTEGER; debug : BOOLEAN) : BOOLEAN FROM RC_IFACE
+VAR
+  response_v2 : ARRAY[RESPONSE_LENGTH_V2] OF BYTE
+  response_v3 : ARRAY[RESPONSE_LENGTH_V3] OF BYTE -- Buffer needed but unused
+  payload_v2 : RC_V2_RESP_PAYLOAD
+  call_success : BOOLEAN
+  header_ok : BOOLEAN
+  bytes_recvd : INTEGER
+  comm_error : INTEGER
+BEGIN
+  error_code = ERR_INTERNAL_ERROR -- Default
+  last_pose = TRUE -- Default assumption
+
+  -- Check if configured protocol is V2
+  IF PROTOCOL_TO_USE <> 2 THEN
+      WRITE TPDISPLAY ('RC Error: RC_GET_NEXT_POSE requires Protocol V2 to be configured.', CR)
+      error_code = ERR_UNKNOWN_PROTOCOL_VERSION
+      RETURN (FALSE)
+  ENDIF
+
+  comm_error = RC_GENERIC_CALL_CORE(ACT_GET_NEXT_POSE, job_id, null_pos, 0, 0, 0, 0,
+                                   response_v2, response_v3, bytes_recvd, call_success, debug)
+
+  IF NOT call_success THEN
+     error_code = comm_error
+     RETURN (FALSE)
+  ENDIF
+
+  -- Unpack V2 response
+  RESP_UNPACK_V2(response_v2, payload_v2, header_ok)
+  IF debug THEN PRINT_RESP_V2(payload_v2) ENDIF
+
+  IF header_ok THEN
+     error_code = payload_v2.error_code
+     IF error_code = ERR_NO_ERROR THEN
+         -- Construct POSITION directly, assuming server sent XYZ (mm) in pos_x/y/z
+         -- and WPR (deg) in rot_1/2/3 when V2 and MM_WPR_FANUC format is used.
+         pose_data = POS(payload_v2.pos_x, payload_v2.pos_y, payload_v2.pos_z, payload_v2.rot_1, payload_v2.rot_2, payload_v2.rot_3)
+
+         -- Check last_pose flag (often in data_1 for V2, 1 means last pose)
+         last_pose = (payload_v2.data_1 = 1) -- Adapt if flag is different
+
+         RETURN (TRUE)
+     ELSE
+         -- Error code set from payload
+         RETURN (FALSE)
+     ENDIF
+  ELSE
+     error_code = ERR_API_RESPONSE_ERROR
+     RETURN (FALSE)
+  ENDIF
+
+END RC_GET_NEXT_POSE
+
+
+END RC_IFACE

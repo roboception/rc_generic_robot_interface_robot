@@ -1,0 +1,124 @@
+PROGRAM RC_EXAMPLE
+
+-- Example program demonstrating the usage of the RcGenericRobotInterface for FANUC
+-- Shows conditional handling for Protocol V2 and V3 based on RC_CONFIG.PROTOCOL_TO_USE
+
+%NOLOCKGROUP
+%NOPAUSE = ERROR + COMMAND + TPENABLE
+
+-- Include interface routines and definitions
+%INCLUDE RC_IFACE
+%INCLUDE RC_PROTO -- For constants like error/status codes
+%INCLUDE RC_CONFIG -- Optional, for seeing config values
+
+VAR
+  job_id : INTEGER = 1 -- Example Job ID
+  status_code : INTEGER
+  error_code : INTEGER
+  job_status : INTEGER
+  -- V2 specific
+  pose_data : POSITION
+  last_pose : BOOLEAN
+  -- V3 specific
+  measurement_data : RC_V3_RESP_PAYLOAD
+  -- Common
+  err_str : STRING[80]
+  debug_mode : BOOLEAN = TRUE -- Enable debug messages for this example
+  get_ok : BOOLEAN
+
+BEGIN
+  -- Initialize interface (e.g., set null_pos)
+  INIT_RC_IFACE
+
+  WRITE TPDISPLAY ('--- Starting RC Interface Example (Proto: ', PROTOCOL_TO_USE, ') ---', CR)
+  WRITE TPDISPLAY ('Connecting to ', SERVER_IP, ':', SERVER_PORT, CR)
+
+  -- Connect to the server
+  RC_CONNECT
+  -- Check connection status indirectly via a simple status call
+  status_code = RC_GET_STATUS(debug_mode)
+  IF status_code <> ERR_NO_ERROR THEN
+    GET_ERR_STR(status_code, err_str)
+    WRITE TPDISPLAY ('Connection/Status Error: ', status_code, ' (', err_str, ')', CR)
+    GOTO cleanup -- Jump to disconnect
+  ELSE
+     WRITE TPDISPLAY ('Connection successful, Status OK.', CR)
+  ENDIF
+
+  -- Example 1: Trigger a job synchronously and wait for completion
+  WRITE TPDISPLAY ('Triggering Job ', job_id, ' synchronously...', CR)
+  RC_TRIG_JOB_SYNC(job_id, job_status, error_code, 500, 10000, debug_mode) -- Poll every 500ms, 10s timeout
+
+  GET_ERR_STR(error_code, err_str)
+  WRITE TPDISPLAY ('Sync Job Result -> Status: ', job_status, ', Error: ', error_code, ' (', err_str, ')', CR)
+
+  -- Handle result retrieval based on protocol
+  IF job_status = JOB_STATUS_DONE AND error_code = ERR_NO_ERROR THEN
+    WRITE TPDISPLAY ('Job completed, getting results...', CR)
+
+    IF PROTOCOL_TO_USE = 2 THEN
+      -- --- Protocol V2: Get Pose --- --
+      WRITE TPDISPLAY ('Using Protocol V2: Getting pose... ', CR)
+      REPEAT
+         get_ok = RC_GET_NEXT_POSE(job_id, pose_data, last_pose, error_code, debug_mode)
+         IF get_ok THEN
+            WRITE TPDISPLAY ('Pose Received: ', CR)
+            WRITE TPDISPLAY ('  XYZ: ', pose_data.x::3, ', ', pose_data.y::3, ', ', pose_data.z::3, CR)
+            WRITE TPDISPLAY ('  WPR: ', pose_data.w::3, ', ', pose_data.p::3, ', ', pose_data.r::3, CR)
+            WRITE TPDISPLAY ('  Last Pose: ', last_pose, CR)
+            -- Simulate moving to the pose
+            -- MOVE TO pose_data
+            DELAY 500 -- Simulate action
+         ELSE
+            GET_ERR_STR(error_code, err_str)
+            WRITE TPDISPLAY ('Error getting pose: ', error_code, ' (', err_str, ')', CR)
+            last_pose = TRUE -- Assume error means no more poses
+         ENDIF
+      UNTIL last_pose
+      WRITE TPDISPLAY ('Finished getting V2 poses.', CR)
+      -- ----------------------------- --
+
+    ELSIF PROTOCOL_TO_USE = 3 THEN
+      -- --- Protocol V3: Get Measurements --- --
+      WRITE TPDISPLAY ('Using Protocol V3: Getting measurements...', CR)
+      get_ok = RC_GET_MEASUREMENTS(job_id, measurement_data, error_code, debug_mode)
+      IF get_ok THEN
+         WRITE TPDISPLAY ('Measurements Received:', CR)
+         WRITE TPDISPLAY ('  Mean Z: ', measurement_data.mean_z::4, CR)
+         WRITE TPDISPLAY ('  Data 1: ', measurement_data.data_1, CR)
+         -- Access other fields as needed: max_x, min_y, data_5 etc.
+      ELSE
+         GET_ERR_STR(error_code, err_str)
+         WRITE TPDISPLAY ('Error getting measurements: ', error_code, ' (', err_str, ')', CR)
+      ENDIF
+      -- ---------------------------------- --
+    ELSE
+       WRITE TPDISPLAY ('Error: Invalid PROTOCOL_TO_USE (', PROTOCOL_TO_USE, ') defined in RC_CONFIG.', CR)
+    ENDIF
+
+  ELSIF job_status = JOB_STATUS_FAILED THEN
+      WRITE TPDISPLAY ('Job ', job_id, ' failed.', CR)
+  ENDIF
+
+  -- Example 2: Trigger asynchronously and check status later (Illustrative)
+  -- job_id = 2 -- Use a different job ID if applicable
+  -- WRITE TPDISPLAY ('Triggering Job ', job_id, ' asynchronously...', CR)
+  -- error_code = RC_TRIG_JOB_ASYNC(job_id, debug_mode)
+  -- IF error_code = ERR_NO_ERROR THEN
+  --   WRITE TPDISPLAY ('Job ', job_id, ' triggered async.', CR)
+  --   -- ... Do other robot tasks ...
+  --   DELAY 2000 -- Wait a bit
+  --   job_status = RC_GET_JOB_STAT(job_id, error_code, debug_mode)
+  --   WRITE TPDISPLAY ('Async Job Status Check -> Status: ', job_status, ', Error: ', error_code, CR)
+  --   -- ... Handle based on status ...
+  -- ELSE
+  --   GET_ERR_STR(error_code, err_str)
+  --   WRITE TPDISPLAY ('Error triggering async job: ', error_code, ' (', err_str, ')', CR)
+  -- ENDIF
+
+cleanup:
+  WRITE TPDISPLAY ('--- Example Finished ---', CR)
+  -- Disconnect from the server
+  RC_DISCONNECT
+
+END RC_EXAMPLE 
