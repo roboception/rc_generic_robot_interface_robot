@@ -1,7 +1,7 @@
 # Roboception Generic Robot Interface
 ## Robot Side Implementations
 
-This repository contains the official robot-side implementations that demonstrate how to integrate various industrial robot platforms with Roboception's Generic Robot Interface (GRI). The GRI bridges advanced computer vision capabilities—exposed via a powerful REST-API—with industrial robot controllers through a simple and efficient TCP socket communication model.
+This repository contains the official robot-side implementations that demonstrate how to integrate various industrial robot platforms with Roboception's Generic Robot Interface (GRI). The GRI bridges the advanced computer vision capabilities—exposed via Roboception sensors' powerful REST-API—with industrial robot controllers through a simple and efficient TCP socket communication interface.
 
 **Why is this important?**  
 Integrating a REST-API directly into robot controllers poses significant challenges due to diverse programming environments and limited REST support on many platforms. To address this, the GRI consolidates all REST interactions within a Docker container running in UserSpace on Roboception sensors. It employs a fixed-length binary protocol over TCP socket communication, ensuring that interfacing with the vision modules is both standardized and straightforward on any robot supporting TCP/IP.
@@ -14,6 +14,14 @@ Complete RAPID implementation for ABB robot controllers.
 - Supports IRC5 controllers  
 - Tested with RobotWare 6.0 and higher  
 - All Interface Actions are implemented callable with simple function calls
+
+### FANUC Robots
+Complete KAREL/TP implementation for FANUC robot controllers.  
+[View FANUC Documentation](FANUC/README_FANUC.md)  
+- Supports R-30iA/R-30iB controllers
+- Simple CALL interface for all vision functions
+- Background processing with KAREL programs
+
 ### Techman Robots
 TMScript implementation for Techman robot controllers.
 
@@ -82,9 +90,10 @@ The protocol system uses a hierarchical design with extensible base classes:
 | M_EULER_RADIANS  | 4     | Meters, Euler angles (radians)   |
 | MM_EULER_DEGREE  | 5     | MM, Euler angles (degrees)       |
 | MM_EULER_RADIANS | 6     | MM, Euler angles (radians)       |
-| MM_ABC_KUKA      | 7     | MM, KUKA ABC rotation           |
+| MM_ABC_KUKA      | 7     | MM, KUKA ABC rotation            |
 | M_AXIS_ANGLE     | 8     | Meters, axis-angle rotation      |
-| MM_AXIS_ANGLE    | 9     | MM, axis-angle rotation         |
+| MM_AXIS_ANGLE    | 9     | MM, axis-angle rotation          |
+| MM_WPR_FANUC     | 10    | XYZ(mm) WPR(deg) rotation        |
 
 ##### Base Error Codes
 | Name                    | Value | Description                     |
@@ -114,7 +123,7 @@ The protocol system uses a hierarchical design with extensible base classes:
 #### Protocol Constants
 - VERSION: 2
 - REQUEST_MAGIC: 2
-- RESPONSE_MAGIC: 3
+- RESPONSE_MAGIC: 2
 - REQUEST_LENGTH: 50 bytes
 - RESPONSE_LENGTH: 55 bytes
 
@@ -146,6 +155,7 @@ The protocol system uses a hierarchical design with extensible base classes:
 #### Protocol V2 Actions
 | Name              | Value | Description                        |
 |-------------------|-------|------------------------------------|
+| STATUS            | 1     | Get status of the GRI server      |
 | TRIGGER_JOB_SYNC  | 2     | Execute job synchronously          |
 | TRIGGER_JOB_ASYNC | 3     | Start job asynchronously          |
 | GET_JOB_STATUS    | 4     | Check async job status            |
