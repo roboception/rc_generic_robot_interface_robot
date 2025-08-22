@@ -64,7 +64,8 @@ Optional example programs (load .ls files):
    - Ensure robot controller can reach the vision system
    - Default connection: IP 192.168.56.1, Port 10000
    - Configure socket C3 for TCP communication
-   - Note: the background task sets `$HOSTC_CFG[2].$SERVER_PORT` to `10000` automatically
+   - Note: the background task sets `$HOSTC_CFG[3].$SERVER_PORT` to `10000` automatically (socket `C3:`)
+   - You must configure socket `C3:` host IP to your GRI server (e.g., `192.168.56.2`)
 
 3. **Example Programs**
    - `GRI_EXAMPLE_PICK_AND_PLACE.LS`: Open and run to see a complete cycle. It starts communication, triggers a sync job, checks `R[150]`, uses `PR[53]` as the grasp pose, computes a simple pre‑grasp (`PR[54]` = `PR[53]` with Z offset), moves, and shuts down communication.
@@ -290,6 +291,11 @@ CALL GRI_QUIT ;
 - Verify job IDs match configured vision jobs
 - Ensure background communication program is running
 - Inspect `R[151]` for the exact GRI error code
+
+### Log File for Support
+
+- On errors, please provide the log file `UD1:gri_comm_background.txt` with your support request.
+- The file contains detailed connection attempts, socket configuration, request/response status and error codes, which helps diagnose issues quickly.
 
 ## System Architecture
 
