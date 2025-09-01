@@ -1,4 +1,4 @@
-/PROG  GRI_HEC_EXAMPLE	  Macro
+/PROG  GRI_EXAMPLE_HEC	  Macro
 /ATTR
 OWNER		= MNEDITOR;
 COMMENT		= "HEC Example";
@@ -18,8 +18,6 @@ TCD:  STACK_SIZE	= 0,
       PAUSE_REQUEST	= 0;
 DEFAULT_GROUP	= 1,*,*,*,*;
 CONTROL_CODE	= 00000000 00000000;
-LOCAL_REGISTERS	= 0,0,0;
-/APPL
 /MN
    1:  !================================ ;
    2:  ! GRI HAND-EYE CALIBRATION EXAMPL ;
@@ -95,53 +93,4 @@ LOCAL_REGISTERS	= 0,0,0;
   72:  LBL[99] ;
   73:  !--- CLEANUP --- ;
   74:  CALL GRI_QUIT    ;
-/POS
-P[1]{
-    GP1:
-    UF : 0, UT : 1,		CONFIG : 'F D T, 0, 1',
-    X =     0.000  mm,	Y =     0.000  mm,	Z =     0.000  mm,
-    W =     0.000 deg,	P =     0.000 deg,	R =     0.000 deg
-};
-P[2]{
-   GP1:
-	UF : 0, UT : 1,		CONFIG : 'F D T, 0, 1',
-	X =     0.000  mm,	Y =     0.000  mm,	Z =     0.000  mm,
-	W =     0.000 deg,	P =     0.000 deg,	R =     0.000 deg
-};
-P[3]{
-   GP1:
-	UF : 0, UT : 1,		CONFIG : 'F D T, 0, 1',
-	X =     0.000  mm,	Y =     0.000  mm,	Z =     0.000  mm,
-	W =     0.000 deg,	P =     0.000 deg,	R =     0.000 deg
-};
-P[4]{
-   GP1:
-	UF : 0, UT : 1,		CONFIG : 'F D T, 0, 1',
-	X =     0.000  mm,	Y =     0.000  mm,	Z =     0.000  mm,
-	W =     0.000 deg,	P =     0.000 deg,	R =     0.000 deg
-};
-P[5]{
-   GP1:
-	UF : 0, UT : 1,		CONFIG : 'F D T, 0, 1',
-	X =     0.000  mm,	Y =     0.000  mm,	Z =     0.000  mm,
-	W =     0.000 deg,	P =     0.000 deg,	R =     0.000 deg
-};
-P[6]{
-   GP1:
-	UF : 0, UT : 1,		CONFIG : 'F D T, 0, 1',
-	X =     0.000  mm,	Y =     0.000  mm,	Z =     0.000  mm,
-	W =     0.000 deg,	P =     0.000 deg,	R =     0.000 deg
-};
-P[7]{
-   GP1:
-	UF : 0, UT : 1,		CONFIG : 'F D T, 0, 1',
-	X =     0.000  mm,	Y =     0.000  mm,	Z =     0.000  mm,
-	W =     0.000 deg,	P =     0.000 deg,	R =     0.000 deg
-};
-P[8]{
-   GP1:
-	UF : 0, UT : 1,		CONFIG : 'F D T, 0, 1',
-	X =     0.000  mm,	Y =     0.000  mm,	Z =     0.000  mm,
-	W =     0.000 deg,	P =     0.000 deg,	R =     0.000 deg
-};
 /END

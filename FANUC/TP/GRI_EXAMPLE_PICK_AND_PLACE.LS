@@ -18,7 +18,6 @@ TCD:  STACK_SIZE	= 0,
       PAUSE_REQUEST	= 0;
 DEFAULT_GROUP	= 1,*,*,*,*;
 CONTROL_CODE	= 00000000 00000000;
-LOCAL_REGISTERS	= 0,0,0;
 /MN
    1:  MESSAGE[Starting pick-and-place cycle] ;
    2:  !--- Step 1: Go to home position ;
@@ -64,17 +63,4 @@ LOCAL_REGISTERS	= 0,0,0;
   42:  !--- Final: Close GRI communicati ;
   43:  CALL GRI_QUIT    ;
   44:  MESSAGE[Pick-and-place cycle finished] ;
-/POS
-P[1]{
-    GP1:
-    UF : 0, UT : 1,		CONFIG : 'F D T, 0, 1',
-    X =     0.000  mm,	Y =     0.000  mm,	Z =     0.000  mm,
-    W =     0.000 deg,	P =     0.000 deg,	R =     0.000 deg
-};
-P[2]{
-   GP1:
-	UF : 0, UT : 1,		CONFIG : 'F D T, 0, 1',
-	X =     0.000  mm,	Y =     0.000  mm,	Z =     0.000  mm,
-	W =     0.000 deg,	P =     0.000 deg,	R =     0.000 deg
-};
 /END

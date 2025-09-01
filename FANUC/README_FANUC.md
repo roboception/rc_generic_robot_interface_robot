@@ -67,22 +67,39 @@ Optional example programs (load .ls files):
    - Note: the background task sets `$HOSTC_CFG[3].$SERVER_PORT` to `10000` automatically (socket `C3:`)
    - You must configure socket `C3:` host IP to your GRI server (e.g., `192.168.56.2`)
 
-3. **Example Programs**
+3. **Endianness Configuration (Platform Compatibility)**
+   - **Automatic detection**: System automatically detects Roboguide simulation (SV_CODE_ID starts with '123456')
+   - **Manual override**: For special cases, set `R[140] = 1` for simulation mode
+   - **Production default**: Physical controllers automatically use correct byte order handling
+   - **No configuration needed**: Works out-of-the-box on both platforms
+
+4. **Example Programs**
    - `GRI_EXAMPLE_PICK_AND_PLACE.LS`: Open and run to see a complete cycle. It starts communication, triggers a sync job, checks `R[150]`, uses `PR[53]` as the grasp pose, computes a simple pre‑grasp (`PR[54]` = `PR[53]` with Z offset), moves, and shuts down communication.
    - `GRI_EXAMPLE_HEC.LS`: Open and teach P[1]…P[8] with TOUCHUP, then run. It opens communication, calls `GRI_HEC_INIT(0)`, steps through `GRI_HEC_SET_POSE(0,slot)` for the 8 taught poses (auto‑captures `LPOS`), and calls `GRI_HEC_CALIBRATE(0)`.
 
 ## Usage
 
-- Integer registers
-  - `R[141]` `gri command`: TP→KAREL command (-1 idle)
-  - `R[142]` `gri param 0`: job/pipeline id
-  - `R[143]` `gri param 1`: slot id (HEC_SET_POSE)
-  - `R[144]` `gri param 2`: reserved
-  - `R[149]` `gri comm status`: handshake; 0 ready, -1 error/not running
-  - `R[150]` `gri obj status`: function result for TP use (see notes below)
-  - `R[151]` `gri status`: completion/error; 99 while processing, 0 on success, otherwise GRI error code
-  - `R[152]` `gri data 1`: remaining primary items (e.g., for next/related)
-  - `R[153]` `gri data 2`: remaining related items
+### Register Usage
+
+**IMPORTANT**: The GRI system requires the following integer registers to be kept free and undisturbed for proper operation. If these registers are already in use by your application, contact Roboception for a custom version using different registers.
+
+**Reserved Registers (R[140-153]):**
+
+**Configuration Registers:**
+- `R[140]` `sim flag`: simulation override (0=production, 1=simulation) - optional manual override
+
+**Command Registers (TP → KAREL):**
+- `R[141]` `gri command`: TP→KAREL command (-1 idle)
+- `R[142]` `gri param 0`: job/pipeline id
+- `R[143]` `gri param 1`: slot id (HEC_SET_POSE)
+- `R[144]` `gri param 2`: reserved
+
+**Status Registers (KAREL → TP):**
+- `R[149]` `gri comm status`: handshake; 0 ready, -1 error/not running
+- `R[150]` `gri obj status`: function result for TP use (see notes below)
+- `R[151]` `gri status`: completion/error; 99 while processing, 0 on success, otherwise GRI error code
+- `R[152]` `gri data 1`: remaining primary items (e.g., for next/related)
+- `R[153]` `gri data 2`: remaining related items
 
 - Position registers
   - `PR[53]` `gri pose`: returned pose for job/next/related
@@ -276,6 +293,20 @@ CALL GRI_QUIT ;
 - Verify `KAREL_ENB = 1` in system variables
 - Check network connectivity to vision system (192.168.56.1:10000)
 - Ensure socket C3 is properly configured
+
+### Endianness Issues
+
+**Problem**: Data corruption or incorrect pose values
+- **Automatic detection**: System should auto-detect platform type (no action needed)
+- **Manual override**: If needed, set `R[140] = 1` for simulation mode using DATA → REGISTERS
+- **Check detection**: Review log file `UD1:gri_comm_background.txt` for platform detection messages
+- **Symptom**: Poses appear scrambled or have impossible values (e.g., very large numbers)
+
+**Manual Override Steps** (if automatic detection fails):
+1. Navigate to: DATA → REGISTERS  
+2. Find `R[140]` (or rename it to `SIM_FLAG` for clarity)
+3. Set value to `1` for simulation mode, `0` for production mode
+4. Setting persists across power cycles
 
 ### No Objects Detected
 

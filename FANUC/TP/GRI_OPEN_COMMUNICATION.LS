@@ -48,7 +48,7 @@ CONTROL_CODE	= 00000000 00000000;
   27:  LBL[5] ;
   28:  !Communication failed ;
   29:  MESSAGE[GRI Communication Failed] ;
-  30:  MESSAGE[Check socket C2 configuration] ;
+  30:  MESSAGE[Check socket C3 configuration] ;
   31:  JMP LBL[7] ;
   32:  LBL[6] ;
   33:  !Communication timeout ;
