@@ -48,11 +48,23 @@ Load the following files onto your FANUC robot controller:
 - `GRI_HEC_INIT.LS` - Initialize hand-eye calibration
 - `GRI_HEC_SET_POSE.LS` - Set calibration pose
 - `GRI_HEC_CALIBRATE.LS` - Execute calibration
-- `GRI_QUIT.LS` - System shutdown
+- `GRI_QUIT.LS` - System shutdown and log file generation
 
 Optional example programs (load .ls files):
 - `GRI_EXAMPLE_PICK_AND_PLACE.LS` - Example pick-and-place application
 - `GRI_EXAMPLE_HEC.LS` - Example hand–eye calibration flow
+
+### Build from Source (recommended)
+
+- It is recommended to compile the background module from source on your own setup for maximum compatibility.
+- Only the background KAREL program `gri_comm_background.kl` needs to be compiled. It `%INCLUDE`s the other `.kl` files during compilation, so you do not compile them separately.
+- Steps (requires FANUC KAREL tools):
+  1. Open a shell in `FANUC/karel/`.
+  2. Run `setrobot` to generate/update `robot.ini` for your controller.
+  3. Run `ktrans gri_comm_background.kl` to produce `gri_comm_background.pc`.
+  4. Load the generated `gri_comm_background.pc` and the TP programs (`.ls`) onto the controller.
+
+- Precompiled binary: A precompiled `gri_comm_background.pc` is included in this repository. It may work, but due to controller software/version differences, compiling locally is recommended to avoid compatibility issues.
 
 ### Robot Controller Configuration
 
@@ -62,18 +74,12 @@ Optional example programs (load .ls files):
 
 2. **Network Configuration**
    - Ensure robot controller can reach the vision system
-   - Default connection: IP 192.168.56.1, Port 10000
+   - Default connection: IP of vision system, Port 10000
    - Configure socket C3 for TCP communication
-   - Note: the background task sets `$HOSTC_CFG[3].$SERVER_PORT` to `10000` automatically (socket `C3:`)
    - You must configure socket `C3:` host IP to your GRI server (e.g., `192.168.56.2`)
+   - Note: the background task sets `$HOSTC_CFG[3].$SERVER_PORT` to `10000` automatically (socket `C3:`)
 
-3. **Endianness Configuration (Platform Compatibility)**
-   - **Automatic detection**: System automatically detects Roboguide simulation (SV_CODE_ID starts with '123456')
-   - **Manual override**: For special cases, set `R[140] = 1` for simulation mode
-   - **Production default**: Physical controllers automatically use correct byte order handling
-   - **No configuration needed**: Works out-of-the-box on both platforms
-
-4. **Example Programs**
+3. **Example Programs**
    - `GRI_EXAMPLE_PICK_AND_PLACE.LS`: Open and run to see a complete cycle. It starts communication, triggers a sync job, checks `R[150]`, uses `PR[53]` as the grasp pose, computes a simple pre‑grasp (`PR[54]` = `PR[53]` with Z offset), moves, and shuts down communication.
    - `GRI_EXAMPLE_HEC.LS`: Open and teach P[1]…P[8] with TOUCHUP, then run. It opens communication, calls `GRI_HEC_INIT(0)`, steps through `GRI_HEC_SET_POSE(0,slot)` for the 8 taught poses (auto‑captures `LPOS`), and calls `GRI_HEC_CALIBRATE(0)`.
 
@@ -85,8 +91,8 @@ Optional example programs (load .ls files):
 
 **Reserved Registers (R[140-153]):**
 
-**Configuration Registers:**
-- `R[140]` `sim flag`: simulation override (0=production, 1=simulation) - optional manual override
+**Configuration / Debug Registers:**
+- `R[140]` `debug`: optional log detail flag (0=normal summaries, 1=enable detailed DEBUG)
 
 **Command Registers (TP → KAREL):**
 - `R[141]` `gri command`: TP→KAREL command (-1 idle)
@@ -103,7 +109,7 @@ Optional example programs (load .ls files):
 
 - Position registers
   - `PR[53]` `gri pose`: returned pose for job/next/related
-  - `PR[52]` `gri hec pose`: calibration pose (auto-captured by `GRI_HEC_SET_POSE`)
+  - `PR[52]` `gri hec pose`: calibration pose (sent by `GRI_HEC_SET_POSE`)
 
 - Notes on `R[150]/R[151]`
   - Pose-returning calls (`GRI_TRIGGER_JOB_SYNC`, `GRI_GET_NEXT_GRASP`, `GRI_GET_RELATED_GRASP`):
@@ -112,16 +118,7 @@ Optional example programs (load .ls files):
   - Confirmation calls (`GRI_TRIGGER_JOB_ASYNC`, `GRI_HEC_*`): `R[150] = 1` on success; otherwise `23` with `R[151]` error code
   - Status call (`GRI_GET_JOB_STATUS`): `R[150] = 1|2|3|4` → INACTIVE|RUNNING|DONE|FAILED
 
-```fanuc
-! Initialize vision system
-CALL GRI_OPEN_COMMUNICATION ;
 
-! Your application logic here
-CALL YOUR_PICKING_ROUTINE ;
-
-! Clean shutdown
-CALL GRI_QUIT ;
-```
 
 ### Simple Vision-Guided Picking
 
@@ -240,16 +237,18 @@ IF R[150:gri obj status]<>1,JMP LBL[error] ;
 
 ! Capture calibration poses
 J P[10:cal_pos_1] 100% FINE ;
-PR[52:hec_pose] = LPOS ;  -- Note: pose is captured automatically by GRI_HEC_SET_POSE as well
+PR[52:hec_pose] = LPOS ;
 CALL GRI_HEC_SET_POSE(0,1) ;
 
 J P[11:cal_pos_2] 100% FINE ;
 PR[52:hec_pose] = LPOS ;
 CALL GRI_HEC_SET_POSE(0,2) ;
 
-J P[12:cal_pos_3] 100% FINE ;
+...
+
+J P[12:cal_pos_8] 100% FINE ;
 PR[52:hec_pose] = LPOS ;
-CALL GRI_HEC_SET_POSE(0,3) ;
+CALL GRI_HEC_SET_POSE(0,8) ;
 
 ! Execute calibration
 CALL GRI_HEC_CALIBRATE(0) ;
@@ -291,22 +290,18 @@ CALL GRI_QUIT ;
 
 **Problem**: `GRI_OPEN_COMMUNICATION` fails to start
 - Verify `KAREL_ENB = 1` in system variables
-- Check network connectivity to vision system (192.168.56.1:10000)
+- Check network connectivity to vision system
 - Ensure socket C3 is properly configured
 
-### Endianness Issues
-
-**Problem**: Data corruption or incorrect pose values
-- **Automatic detection**: System should auto-detect platform type (no action needed)
-- **Manual override**: If needed, set `R[140] = 1` for simulation mode using DATA → REGISTERS
-- **Check detection**: Review log file `UD1:gri_comm_background.txt` for platform detection messages
-- **Symptom**: Poses appear scrambled or have impossible values (e.g., very large numbers)
-
-**Manual Override Steps** (if automatic detection fails):
-1. Navigate to: DATA → REGISTERS  
-2. Find `R[140]` (or rename it to `SIM_FLAG` for clarity)
-3. Set value to `1` for simulation mode, `0` for production mode
-4. Setting persists across power cycles
+### Collecting Logs for Support
+- Log file: `UD1:gri_comm_background.txt` (front USB port = UD1)
+- Important: The log is finalized when the background program stops. If an issue occurs, run `GRI_QUIT.LS` to stop the background program, then collect the log.
+- How to copy from UD1:
+  - Use a USB stick formatted FAT/FAT32 (≤32GB recommended), single primary partition
+  - Insert into the controller’s front USB port
+  - On the pendant: MENU → FILE → UTIL → Set Device → select `UD1:`
+  - Navigate to `UD1:` and copy `gri_comm_background.txt`
+  - Safely remove the USB stick and attach the log to your support request
 
 ### No Objects Detected
 
@@ -315,18 +310,6 @@ CALL GRI_QUIT ;
 - Verify vision job configuration on vision system
 - Confirm camera positioning and focus
 
-### Error Status
-
-**Problem**: R[150] returns 23 (error occurred)
-- Check vision system connection status
-- Verify job IDs match configured vision jobs
-- Ensure background communication program is running
-- Inspect `R[151]` for the exact GRI error code
-
-### Log File for Support
-
-- On errors, please provide the log file `UD1:gri_comm_background.txt` with your support request.
-- The file contains detailed connection attempts, socket configuration, request/response status and error codes, which helps diagnose issues quickly.
 
 ## System Architecture
 
@@ -335,12 +318,6 @@ The FANUC GRI client uses a layered architecture:
 - **TP Programs**: Simple interface functions callable from user programs
 - **Background Module**: Compiled KAREL `.pc` (`gri_comm_background.pc`) handling socket/protocol and register bridging
 - **TCP Socket**: Binary protocol communication with vision system
-
-The communication protocol handles:
-- Message formatting and validation
-- Error detection and recovery
-- Pose data conversion between formats
-- Background processing coordination
 
 ## Deployment Checklist
 

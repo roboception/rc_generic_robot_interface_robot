@@ -1,0 +1,24 @@
+-- File: gri_get_related_grasp_routine.kl
+-- Contains the main communication routine for getting related grasp 
+
+ROUTINE get_related_grasp(job_id_to_send : INTEGER; grasp_pose : XYZWPR; remaining_primary : INTEGER; remaining_related : INTEGER) : INTEGER
+  VAR
+    local_status : INTEGER
+    dummy_int : INTEGER
+    current_pose : XYZWPR
+    
+  BEGIN
+    local_status = SUCCESS_STATUS
+    dummy_int = 0
+    
+    -- Get current robot pose for configuration data
+    current_pose = CURPOS(dummy_int, dummy_int)
+    
+    WRITE TPDISPLAY(LPRE_GETREL, 'Getting related grasp for job: ', job_id_to_send, CR)
+    WRITE g_log_file(LPRE_GETREL, 'Getting related grasp for job: ', job_id_to_send, CR)
+    
+    -- Use comprehensive communication helper
+    local_status = gri_communicate_with_pose_result(REQ_ACTION_GET_RELATED_POSE, job_id_to_send, grasp_pose, remaining_primary, remaining_related, current_pose, LPRE_GETREL)
+    
+    RETURN(local_status)
+  END get_related_grasp 

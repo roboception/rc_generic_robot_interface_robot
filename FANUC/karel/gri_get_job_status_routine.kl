@@ -1,0 +1,16 @@
+-- File: gri_get_job_status_routine.kl
+-- Contains the KAREL function to get job status from GRI server.
+
+ROUTINE get_job_status(job_id_to_query : INTEGER) : INTEGER
+  VAR
+    job_status_result : INTEGER
+    
+  BEGIN
+    WRITE TPDISPLAY(LPRE_GETSTAT, 'Querying job status for ID: ', job_id_to_query, CR)
+    WRITE g_log_file(LPRE_GETSTAT, 'Querying job status for ID: ', job_id_to_query, CR)
+    
+    -- Use comprehensive communication helper for status functions
+    job_status_result = gri_communicate_for_status(REQ_ACTION_GET_JOB_STATUS, job_id_to_query, LPRE_GETSTAT)
+    
+    RETURN(job_status_result)
+  END get_job_status

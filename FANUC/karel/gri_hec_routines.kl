@@ -1,0 +1,125 @@
+-- File: gri_hec_routines.kl
+-- Hand-Eye Calibration (HEC) routines for FANUC GRI client v12.
+-- Contains: hec_init, hec_set_pose, hec_calibrate
+
+-- HEC Function: Initialize HEC pipeline
+ROUTINE hec_init(pipeline_id : INTEGER) : INTEGER
+  VAR
+    dummy_pose : XYZWPR
+    req_data_int_arr : ARRAY[NUM_DATA_INTS_TO_SEND] OF INTEGER
+    i : INTEGER
+    
+  BEGIN
+    WRITE TPDISPLAY(LPRE_HEC_INIT, 'Initializing HEC pipeline: ', pipeline_id, CR)
+    WRITE g_log_file(LPRE_HEC_INIT, 'Initializing HEC pipeline: ', pipeline_id, CR)
+    
+    -- Send data integers: pipeline_id in data1, others zero
+    req_data_int_arr[1] = pipeline_id
+    FOR i = 2 TO NUM_DATA_INTS_TO_SEND DO
+      req_data_int_arr[i] = 0
+    ENDFOR
+    
+    -- Use comprehensive communication helper
+    RETURN(gri_communicate_for_confirmation(REQ_ACTION_HEC_INIT, 0, dummy_pose, req_data_int_arr, LPRE_HEC_INIT))
+  END hec_init
+
+-- HEC Function: Set pose for calibration  
+ROUTINE hec_set_pose(pipeline_id : INTEGER; slot_id : INTEGER; pose_to_set : XYZWPR) : INTEGER
+  VAR
+    req_data_int_arr : ARRAY[NUM_DATA_INTS_TO_SEND] OF INTEGER
+    i : INTEGER
+    
+  BEGIN
+    WRITE TPDISPLAY(LPRE_HEC_SET, 'Setting pose ', slot_id, ' for pipeline ', pipeline_id, CR)
+    WRITE g_log_file(LPRE_HEC_SET, 'Setting pose ', slot_id, ' for pipeline ', pipeline_id, CR)
+    WRITE g_log_file(LPRE_HEC_SET, 'X=', pose_to_set.X::6::1, ' Y=', pose_to_set.Y::6::1, ' Z=', pose_to_set.Z::6::1, CR)
+    WRITE g_log_file(LPRE_HEC_SET, 'W=', pose_to_set.W::6::1, ' P=', pose_to_set.P::6::1, ' R=', pose_to_set.R::6::1, CR)
+    
+    -- Send data integers: pipeline_id in data1, slot_id in data2, others zero
+    req_data_int_arr[1] = pipeline_id
+    req_data_int_arr[2] = slot_id
+    FOR i = 3 TO NUM_DATA_INTS_TO_SEND DO
+      req_data_int_arr[i] = 0
+    ENDFOR
+    
+    -- Use comprehensive communication helper
+    RETURN(gri_communicate_for_confirmation(REQ_ACTION_HEC_SET_POSE, 0, pose_to_set, req_data_int_arr, LPRE_HEC_SET))
+  END hec_set_pose
+
+-- HEC Function: Perform calibration
+ROUTINE hec_calibrate(pipeline_id : INTEGER) : INTEGER
+  VAR
+    req_data_int_arr : ARRAY[NUM_DATA_INTS_TO_SEND] OF INTEGER
+    i : INTEGER
+    local_status : INTEGER
+    server_error : INTEGER
+    calib_result_pose : XYZWPR
+    dummy_data_ints : ARRAY[RESP_NUM_DATA_INTS_RECV] OF INTEGER
+    curr_pose_for_config : XYZWPR
+    dummy_int : INTEGER
+    
+  BEGIN
+    WRITE TPDISPLAY(LPRE_HEC_CALIB, 'Calibrating pipeline: ', pipeline_id, CR)
+    WRITE g_log_file(LPRE_HEC_CALIB, 'Calibrating pipeline: ', pipeline_id, CR)
+    
+    -- Send data integers: pipeline_id in data1, others zero
+    req_data_int_arr[1] = pipeline_id
+    FOR i = 2 TO NUM_DATA_INTS_TO_SEND DO
+      req_data_int_arr[i] = 0
+    ENDFOR
+    
+    -- Determine current pose once for sending and for config_data of the returned pose
+    dummy_int = 0
+    curr_pose_for_config = CURPOS(dummy_int, dummy_int)
+    
+    -- Use modular routine to build and send request header
+    local_status = send_request_header(REQ_ACTION_HEC_CALIBRATE, 0, LPRE_HEC_CALIB)
+    IF local_status <> SUCCESS_STATUS THEN
+      RETURN(GRI_ERR_INTERNAL_ERROR)
+    ENDIF
+    
+    -- Use modular routine to send pose data
+    local_status = send_pose_data(curr_pose_for_config, LPRE_HEC_CALIB)
+    IF local_status <> SUCCESS_STATUS THEN
+      RETURN(GRI_ERR_INTERNAL_ERROR)
+    ENDIF
+    
+    -- Use modular routine to send data integers
+    local_status = send_data_integers(req_data_int_arr, NUM_DATA_INTS_TO_SEND, LPRE_HEC_CALIB)
+    IF local_status <> SUCCESS_STATUS THEN
+      RETURN(GRI_ERR_INTERNAL_ERROR)
+    ENDIF
+    
+    -- Use modular routine to read response header and extract server error code
+    server_error = read_response_header_with_error_code(REQ_ACTION_HEC_CALIBRATE, 0, LPRE_HEC_CALIB)
+    IF server_error < 0 THEN
+      RETURN(GRI_ERR_INTERNAL_ERROR)
+    ENDIF
+    
+    -- Read calibration result pose using standard scaled integer approach
+    -- Use current robot pose to supply valid configuration data (avoid uninitialized config)
+    local_status = read_response_pose_to_xyzwpr(calib_result_pose, curr_pose_for_config, LPRE_HEC_CALIB)
+    IF local_status <> SUCCESS_STATUS THEN
+      RETURN(GRI_ERR_INTERNAL_ERROR)
+    ENDIF
+    
+    -- Use modular routine to read dummy data integers
+    local_status = read_response_data_integers(dummy_data_ints, RESP_NUM_DATA_INTS_RECV, LPRE_HEC_CALIB)
+    IF local_status <> SUCCESS_STATUS THEN
+      RETURN(GRI_ERR_INTERNAL_ERROR)
+    ENDIF
+    
+    IF server_error = GRI_ERR_NO_ERROR THEN
+      WRITE TPDISPLAY(LPRE_HEC_CALIB, 'Success', CR)
+      WRITE g_log_file(LPRE_HEC_CALIB, 'Success', CR)
+      
+      -- Log calibration result
+      WRITE g_log_file(LPRE_HEC_CALIB, 'Result: X=', calib_result_pose.X, ' Y=', calib_result_pose.Y, ' Z=', calib_result_pose.Z, CR)
+      WRITE g_log_file(LPRE_HEC_CALIB, 'W=', calib_result_pose.W, ' P=', calib_result_pose.P, ' R=', calib_result_pose.R, CR)
+    ELSE
+      WRITE TPDISPLAY(LPRE_HEC_CALIB, 'ERROR ', server_error, ' - ', get_error_message(server_error), CR)
+      WRITE g_log_file(LPRE_HEC_CALIB, 'ERROR ', server_error, ' - ', get_error_message(server_error), CR)
+    ENDIF
+    
+    RETURN(server_error)
+  END hec_calibrate 

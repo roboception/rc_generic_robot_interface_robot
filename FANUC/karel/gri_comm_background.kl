@@ -1,0 +1,398 @@
+PROGRAM GRI_COMM_BACKGROUND
+%NOLOCKGROUP
+%NOPAUSE=ERROR+COMMAND+TPENABLE
+%NOBUSYLAMP
+%COMMENT = 'GRI Communication Background Program v12'
+
+-- GRI Background Communication Program
+-- Monitors registers for commands from TP programs
+-- Calls appropriate KAREL routines and returns status
+
+  
+CONST
+  -- Register definitions
+  REG_COMMAND = 141          -- Command register (TP -> KAREL)
+  REG_PARAM_0 = 142          -- Parameter 0 register
+  REG_PARAM_1 = 143          -- Parameter 1 register
+  REG_PARAM_2 = 144          -- Parameter 2 register
+  REG_COMM_STATUS = 149      -- Communication handshake register
+  REG_OBJECT_STATUS = 150    -- Object/Pose status register
+  REG_STATUS = 151           -- Status register (KAREL -> TP)
+  REG_RESULT = 152           -- Result data register
+  REG_REMAINING = 153        -- Remaining count register
+  
+  -- Debug control register
+  REG_DEBUG_FLAG = 140       -- R[140] debug flag (0=off, 1=on)
+
+  
+  -- GRI Communication Commands (TP->KAREL)
+  GRI_CMD_IDLE = -1          -- System idle
+  GRI_CMD_QUIT = 99          -- Quit background program
+  
+  -- GRI Status codes
+  GRI_STATUS_IDLE = 0        -- System idle
+  GRI_STATUS_PROCESSING = 99 -- Processing command
+  GRI_STATUS_SUCCESS = 1     -- Command successful
+  GRI_STATUS_ERROR = -1      -- Command failed
+  
+  -- GRI Object Status codes
+  GRI_OBJ_POSE_FOUND = 20    -- Pose/Object found
+  GRI_OBJ_NO_POSE = 21       -- No pose/object found
+  GRI_OBJ_ERROR = 23         -- Error in pose/object detection
+
+
+-- Global file variables - shared with included routines
+VAR
+  g_file_var : FILE          -- Global file variable for socket comms
+  g_log_file : FILE          -- Global file variable for logging
+  g_log_path : STRING[30]    -- Log file path for open/append cycles
+  command_reg : INTEGER      -- Current command from TP
+  status_reg : INTEGER       -- Status to return to TP
+  last_command : INTEGER     -- Previous command (for change detection)
+  g_debug_bytes_enabled : BOOLEAN -- Enable byte-wise logging when TRUE
+  
+  -- Parameters from TP programs
+  param_0 : INTEGER          -- General parameter 0
+  param_1 : INTEGER          -- General parameter 1
+  param_2 : INTEGER          -- General parameter 2
+  
+  -- GRI function results
+  gri_result : INTEGER       -- Result from GRI function calls
+  
+  -- Communication variables
+  main_status : INTEGER      -- Main program status
+  entry : INTEGER            -- For system configuration
+  
+  -- Variables for get_next_grasp
+  robot_pose : XYZWPR
+  next_rem_primary : INTEGER
+  next_rem_related : INTEGER
+  
+  %INCLUDE gri_common_const         -- Include all common constants
+  %INCLUDE gri_job_sync_routine     -- trigger_job_sync
+  %INCLUDE gri_job_async_routine    -- trigger_job_async
+  %INCLUDE gri_get_job_status_routine -- get_job_status
+  %INCLUDE gri_get_next_grasp_routine -- get_next_grasp
+  %INCLUDE gri_get_related_grasp_routine -- get_related_grasp
+  %INCLUDE gri_hec_routines         -- hec_init, hec_set_pose, hec_calibrate
+
+-- Helper routine to initialize pose variables to avoid uninitialized data error
+ROUTINE initialize_pose_variables
+  BEGIN
+    robot_pose.X = 0.0
+    robot_pose.Y = 0.0
+    robot_pose.Z = 0.0
+    robot_pose.W = 0.0
+    robot_pose.P = 0.0
+    robot_pose.R = 0.0
+    next_rem_primary = 0
+    next_rem_related = 0
+  END initialize_pose_variables
+
+-- Helper routine to handle pose-returning function register pattern
+ROUTINE handle_pose_function_result(func_result : INTEGER; pose : XYZWPR; rem_primary : INTEGER; rem_related : INTEGER)
+  BEGIN
+    IF func_result = GRI_ERR_NO_ERROR THEN
+      SET_INT_REG(150, 20, main_status)        -- Pose found
+      SET_INT_REG(152, rem_primary, main_status)  -- Remaining primary
+      SET_INT_REG(153, rem_related, main_status)  -- Remaining related
+      SET_POS_REG(53, pose, main_status)    -- Pose
+      SET_INT_REG(151, GRI_ERR_NO_ERROR, main_status)  -- Success (SET LAST!)
+    ELSE
+      SET_INT_REG(150, 23, main_status)        -- Error
+      SET_INT_REG(151, func_result, main_status) -- Error code (SET LAST!)
+    ENDIF
+  END handle_pose_function_result
+
+-- Helper routine to handle simple confirmation function register pattern
+ROUTINE handle_confirmation_function_result(func_result : INTEGER)
+  BEGIN
+    SET_INT_REG(150, func_result, main_status)      -- Function result
+    SET_INT_REG(151, func_result, main_status)      -- Completion (SET LAST!)
+  END handle_confirmation_function_result
+
+-- Helper routine to handle status function register pattern
+ROUTINE handle_status_function_result(func_result : INTEGER)
+  BEGIN
+    IF func_result >= 0 THEN
+      SET_INT_REG(150, func_result, main_status)      -- Status code
+      SET_INT_REG(151, GRI_ERR_NO_ERROR, main_status) -- Success (SET LAST!)
+    ELSE
+      SET_INT_REG(150, 0, main_status)          -- Unknown status
+      SET_INT_REG(151, func_result, main_status) -- Error code (SET LAST!)
+    ENDIF
+  END handle_status_function_result
+
+ROUTINE initialize_communication
+  VAR
+    sv_code_id : STRING[20]
+    get_status : INTEGER
+    debug_flag_reg : INTEGER
+    dummy_bool : BOOLEAN
+    dummy_real : REAL
+    is_simulation : BOOLEAN
+  BEGIN
+    -- Initialize communication
+    g_log_path = 'UD1:gri_comm_background.txt'
+    OPEN FILE g_log_file('RW', g_log_path)
+    IF IO_STATUS(g_log_file) <> SUCCESS_STATUS THEN
+      WRITE TPDISPLAY('[GRI_COMM] Log file open failed. Path: ', g_log_path, CR)
+    ENDIF
+    
+    WRITE g_log_file('[GRI_COMM] Background program started', CR); WRITE TPDISPLAY('[GRI_COMM] Background program started', CR)
+    
+    -- Configure socket port (C3)
+    WRITE g_log_file('[GRI_COMM] Configuring socket C3...', CR); WRITE TPDISPLAY('[GRI_COMM] Configuring socket C3...', CR)
+    SET_VAR(entry, '*SYSTEM*', '$HOSTC_CFG[3].$SERVER_PORT', SERVER_PORT, main_status)
+    IF main_status <> SUCCESS_STATUS THEN
+      WRITE TPDISPLAY('[GRI_COMM] [FATAL] Socket C3 not configured!', CR); WRITE g_log_file('[GRI_COMM] [FATAL] Socket C3 not configured!', CR)
+      WRITE TPDISPLAY('[GRI_COMM] [FATAL] Follow socket setup instructions', CR); WRITE g_log_file('[GRI_COMM] [FATAL] Follow socket setup instructions', CR)
+      DELAY 2000  -- Give messages time to display before TP shows error
+      SET_INT_REG(REG_COMM_STATUS, -1, main_status)
+      CLOSE FILE g_log_file
+      ABORT
+    ENDIF
+    
+    -- Connect to server (this may block if server unavailable)
+    WRITE g_log_file('[GRI_COMM] Connecting to GRI server...', CR); WRITE TPDISPLAY('[GRI_COMM] Connecting to GRI server...', CR)
+    
+    MSG_CONNECT(CLIENT_TAG, main_status)
+    
+    IF main_status <> SUCCESS_STATUS THEN
+      WRITE TPDISPLAY('[GRI_COMM] [FATAL] Connection failed!', CR); WRITE g_log_file('[GRI_COMM] [FATAL] Connection failed!', CR)
+      WRITE TPDISPLAY('[GRI_COMM] [FATAL] Check GRI server is running', CR); WRITE g_log_file('[GRI_COMM] [FATAL] Check GRI server is running', CR)
+      DELAY 2000  -- Give messages time to display before TP shows error
+      SET_INT_REG(REG_COMM_STATUS, -1, main_status)
+      CLOSE FILE g_log_file
+      ABORT
+    ENDIF
+    
+    WRITE g_log_file('[GRI_COMM] Connection successful!', CR); WRITE TPDISPLAY('[GRI_COMM] Connection successful!', CR)
+    
+    -- Open file for communication
+    OPEN FILE g_file_var('RW', CLIENT_TAG)
+    main_status = IO_STATUS(g_file_var)
+    IF main_status <> SUCCESS_STATUS THEN
+      WRITE TPDISPLAY('[GRI_COMM] [FATAL] File open failed!', CR); WRITE g_log_file('[GRI_COMM] [FATAL] File open failed!', CR)
+      MSG_DISCO(CLIENT_TAG, main_status)
+      DELAY 2000  -- Give messages time to display before TP shows error
+      SET_INT_REG(REG_COMM_STATUS, -1, main_status)
+      CLOSE FILE g_log_file
+      ABORT
+    ENDIF
+    
+    SET_FILE_ATR(g_file_var, ATR_UF)
+    
+    -- Configure endianness handling for cross-platform compatibility
+    -- Dual detection method: automatic + manual override
+    -- FALLBACK: Always assume production mode for safety
+    is_simulation = FALSE
+    
+    -- Primary detection: Check software version for Roboguide signature
+    GET_VAR(entry, '*SYSTEM*', '$SCR_GRP[1].$SV_CODE_ID', sv_code_id, get_status)
+    IF get_status = 0 THEN
+      -- Robust check: starts with '123456' and has sufficient length
+      IF (STR_LEN(sv_code_id) >= 6) AND (SUB_STR(sv_code_id, 1, 6) = '123456') THEN
+        is_simulation = TRUE
+        WRITE g_log_file('[GRI_COMM] Detected Roboguide simulation (SV_CODE_ID: ', sv_code_id, ')', CR)
+      ELSE
+        WRITE g_log_file('[GRI_COMM] Physical controller detected (SV_CODE_ID: ', sv_code_id, ')', CR)
+      ENDIF
+    ELSE
+      WRITE g_log_file('[GRI_COMM] Could not read SV_CODE_ID, assuming physical controller', CR)
+    ENDIF
+    
+    -- Do not use ATR_REVERSE; we pack/unpack little-endian manually for all 4-byte fields
+    WRITE g_log_file('[GRI_COMM] Using manual little-endian packing/unpacking (ATR_REVERSE disabled)', CR)
+    
+    -- Read debug flag (R[140]) to optionally enable debug logging
+    g_debug_bytes_enabled = FALSE
+    GET_REG(REG_DEBUG_FLAG, dummy_bool, debug_flag_reg, dummy_real, get_status)
+    IF (get_status = 0) AND (debug_flag_reg = 1) THEN
+      g_debug_bytes_enabled = TRUE
+      WRITE g_log_file('[GRI_COMM] Debug logging enabled (R[', REG_DEBUG_FLAG, ']=1)', CR)
+    ELSE
+      WRITE g_log_file('[GRI_COMM] Debug logging disabled (R[', REG_DEBUG_FLAG, ']!=1 or read error)', CR)
+    ENDIF
+
+    -- FORCE DEBUG - remove after testing
+    g_debug_bytes_enabled = TRUE  -- TODO: disable this line to use R[140] for debug control
+    
+    WRITE g_log_file('[GRI_COMM] Socket ', CLIENT_TAG, ' opened successfully', CR); WRITE TPDISPLAY('[GRI_COMM] Socket ', CLIENT_TAG, ' opened successfully', CR)
+  END initialize_communication
+
+ROUTINE process_command
+  VAR
+    real_flag : BOOLEAN
+    real_val : REAL
+  BEGIN
+    -- Get command and parameters from registers
+    GET_REG(REG_COMMAND, real_flag, command_reg, real_val, main_status)
+    GET_REG(REG_PARAM_0, real_flag, param_0, real_val, main_status)
+    GET_REG(REG_PARAM_1, real_flag, param_1, real_val, main_status)
+    GET_REG(REG_PARAM_2, real_flag, param_2, real_val, main_status)
+    
+    -- Process command if it has changed
+    IF command_reg <> last_command THEN
+      last_command = command_reg
+      
+      
+      -- Set processing status in R[151] (all functions use this)
+      SET_INT_REG(REG_STATUS, GRI_STATUS_PROCESSING, main_status)
+      
+      WRITE g_log_file('[GRI_COMM] Processing command: ', command_reg, CR); WRITE TPDISPLAY('[GRI_COMM] Processing command: ', command_reg, CR)
+      
+      SELECT command_reg OF
+        
+        -- POSE-RETURNING FUNCTIONS: All use consistent pattern
+        CASE (REQ_ACTION_TRIGGER_JOB_SYNC):
+          -- Initialize pose to avoid uninitialized data error
+          initialize_pose_variables
+          gri_result = trigger_job_sync(param_0, robot_pose, next_rem_primary, next_rem_related)
+          
+          handle_pose_function_result(gri_result, robot_pose, next_rem_primary, next_rem_related)
+          
+        CASE (REQ_ACTION_GET_NEXT_POSE):
+          -- Initialize pose to avoid uninitialized data error
+          initialize_pose_variables
+          gri_result = get_next_grasp(param_0, robot_pose, next_rem_primary, next_rem_related)
+          
+          handle_pose_function_result(gri_result, robot_pose, next_rem_primary, next_rem_related)
+          
+        CASE (REQ_ACTION_GET_RELATED_POSE):
+          -- Initialize pose to avoid uninitialized data error
+          initialize_pose_variables
+          gri_result = get_related_grasp(param_0, robot_pose, next_rem_primary, next_rem_related)
+          
+          handle_pose_function_result(gri_result, robot_pose, next_rem_primary, next_rem_related)
+          
+        -- STATUS FUNCTIONS: R[150] = status code, R[151] = completion
+        CASE (REQ_ACTION_GET_JOB_STATUS):
+          gri_result = get_job_status(param_0)
+          
+          -- Set registers according to GRI pattern for status functions
+          handle_status_function_result(gri_result)
+          
+        -- CONFIRMATION FUNCTIONS: R[150] = result, R[151] = completion
+        CASE (REQ_ACTION_TRIGGER_JOB_ASYNC):
+          trigger_job_async(param_0)
+          gri_result = GRI_ERR_NO_ERROR
+          
+          -- Set registers according to GRI pattern for confirmation functions
+          handle_confirmation_function_result(gri_result)
+          
+        CASE (REQ_ACTION_HEC_INIT):
+          gri_result = hec_init(param_0)
+          
+          -- Set registers according to GRI pattern for confirmation functions
+          handle_confirmation_function_result(gri_result)
+          
+        CASE (REQ_ACTION_HEC_SET_POSE):
+          -- Get current robot pose directly (like other functions)
+          robot_pose = CURPOS(0, 0)
+          gri_result = hec_set_pose(param_0, param_1, robot_pose)
+          
+          -- Set registers according to GRI pattern for confirmation functions
+          handle_confirmation_function_result(gri_result)
+          
+        CASE (REQ_ACTION_HEC_CALIBRATE):
+          gri_result = hec_calibrate(param_0)
+          
+          -- Set registers according to GRI pattern for confirmation functions
+          handle_confirmation_function_result(gri_result)
+          
+        CASE (GRI_CMD_QUIT):
+          WRITE g_log_file('[GRI_COMM] Quitting...', CR); WRITE TPDISPLAY('[GRI_COMM] Quitting...', CR)
+          gri_result = GRI_ERR_NO_ERROR
+          
+          -- Set registers according to GRI pattern for confirmation functions
+          handle_confirmation_function_result(gri_result)
+          -- Exit will be handled in main loop
+          
+        CASE (GRI_CMD_IDLE):
+          -- Do nothing, just acknowledge
+          gri_result = GRI_ERR_NO_ERROR
+          SET_INT_REG(151, gri_result, main_status)      -- Completion
+          
+        ELSE:
+          WRITE g_log_file('[GRI_COMM] Unknown command: ', command_reg, CR); WRITE TPDISPLAY('[GRI_COMM] Unknown command: ', command_reg, CR)
+          gri_result = GRI_ERR_INVALID_ACTION
+          
+          -- Set error in both registers
+          SET_INT_REG(150, gri_result, main_status)      -- Error
+          SET_INT_REG(151, gri_result, main_status)      -- Completion (SET LAST!)
+          
+      ENDSELECT
+      
+      -- Reset command register to idle
+      SET_INT_REG(REG_COMMAND, GRI_CMD_IDLE, main_status)
+      last_command = GRI_CMD_IDLE  -- Update last_command to prevent re-processing same command
+      
+      -- (log left open; per-command flush disabled due to append mode incompatibility)
+      
+    ENDIF
+  END process_command
+
+BEGIN -- Main program loop
+  WRITE TPDISPLAY('[GRI_COMM] Starting background communication program', CR)
+  
+  -- Initialize variables
+  command_reg = GRI_CMD_IDLE
+  last_command = GRI_CMD_IDLE
+  status_reg = GRI_STATUS_IDLE
+  
+  -- Set initial register values and register comments
+  SET_INT_REG(REG_COMMAND, GRI_CMD_IDLE, main_status)
+  SET_INT_REG(REG_STATUS, GRI_STATUS_IDLE, main_status)
+  
+  -- Add register comments for user-friendly interface
+  SET_REG_CMT(REG_COMMAND, 'gri command', main_status)
+  SET_REG_CMT(REG_STATUS, 'gri status', main_status) 
+  SET_REG_CMT(REG_PARAM_0, 'gri param 0', main_status)
+  SET_REG_CMT(REG_PARAM_1, 'gri param 1', main_status)
+  SET_REG_CMT(REG_PARAM_2, 'gri param 2', main_status)
+  SET_REG_CMT(REG_RESULT, 'gri result', main_status)
+  SET_REG_CMT(REG_REMAINING, 'gri remaining', main_status)
+  SET_REG_CMT(REG_COMM_STATUS, 'gri comm status', main_status)
+  SET_REG_CMT(REG_DEBUG_FLAG, 'gri debug (0=off,1=on)', main_status)
+  
+  -- Add GRI register pattern comments
+  SET_REG_CMT(REG_OBJECT_STATUS, 'gri obj status', main_status)
+  SET_REG_CMT(152, 'gri data 1', main_status)
+  SET_REG_CMT(153, 'gri data 2', main_status)
+
+  SET_REG_CMT(155, 'gri pose ready', main_status)
+  -- Position register comments
+  SET_PREG_CMT(51, 'gri next grasp', main_status)
+  SET_PREG_CMT(52, 'gri hec pose', main_status)
+  SET_PREG_CMT(53, 'gri move pose', main_status)
+  
+  -- Initialize communication
+  initialize_communication
+  
+  -- Set handshake register to 0 (ready) - allows TP programs to proceed
+  SET_INT_REG(REG_COMM_STATUS, 0, main_status)
+  WRITE TPDISPLAY('[GRI_COMM] Communication ready - R149=0', CR)
+  
+  -- Main monitoring loop
+  WHILE command_reg <> GRI_CMD_QUIT DO
+    process_command
+    DELAY 100  -- Small delay to prevent excessive CPU usage
+  ENDWHILE
+  
+  -- Cleanup when quit command received
+  -- Close socket file
+  CLOSE FILE g_file_var
+  main_status = IO_STATUS(g_file_var)
+  
+  -- Disconnect socket connection (CRITICAL - this was missing!)
+  MSG_DISCO(CLIENT_TAG, main_status)
+  WRITE g_log_file('[GRI_COMM] Socket disc., status: ', main_status, CR); WRITE TPDISPLAY('[GRI_COMM] Socket disc., status: ', main_status, CR)
+  
+  -- Close log file
+  CLOSE FILE g_log_file
+  
+  -- Reset handshake register to indicate program stopped
+  SET_INT_REG(REG_COMM_STATUS, -1, main_status)
+  
+END GRI_COMM_BACKGROUND
