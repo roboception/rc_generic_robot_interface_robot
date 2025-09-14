@@ -288,9 +288,7 @@ ROUTINE process_command
           handle_confirmation_function_result(gri_result)
           
         CASE (REQ_ACTION_HEC_SET_POSE):
-          -- Get current robot pose directly (like other functions)
-          robot_pose = CURPOS(0, 0)
-          gri_result = hec_set_pose(param_0, param_1, robot_pose)
+          gri_result = hec_set_pose(param_0, param_1)
           
           -- Set registers according to GRI pattern for confirmation functions
           handle_confirmation_function_result(gri_result)
@@ -364,7 +362,6 @@ BEGIN -- Main program loop
   SET_REG_CMT(155, 'gri pose ready', main_status)
   -- Position register comments
   SET_PREG_CMT(51, 'gri next grasp', main_status)
-  SET_PREG_CMT(52, 'gri hec pose', main_status)
   SET_PREG_CMT(53, 'gri move pose', main_status)
   
   -- Initialize communication

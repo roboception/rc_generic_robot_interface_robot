@@ -247,11 +247,14 @@ ROUTINE send_pose_data(pose : XYZWPR; log_prefix : STRING) : INTEGER
     scaled_x, scaled_y, scaled_z : INTEGER
     scaled_w, scaled_p, scaled_r : INTEGER
     scaled_r4 : INTEGER
+    b1_i, b2_i, b3_i, b4_i : INTEGER
+    npos, t1, t2, t3, t4 : INTEGER
     s_int_byte1 : STRING[1]
     s_int_byte2 : STRING[1]
     s_int_byte3 : STRING[1]
     s_int_byte4 : STRING[1]
     packed_int_str : STRING[KAREL_INT_SIZE]
+    dbg_msg : STRING[200]
   BEGIN
     local_status = SUCCESS_STATUS
     
@@ -267,12 +270,31 @@ ROUTINE send_pose_data(pose : XYZWPR; log_prefix : STRING) : INTEGER
     -- Always-on request pose summary
     WRITE g_log_file(log_prefix, 'pose: X=', pose.X::7::3, ' Y=', pose.Y::7::3, ' Z=', pose.Z::7::3, ' W=', pose.W::7::3, ' P=', pose.P::7::3, ' R=', pose.R::7::3, CR)
 
-    -- Write X as little-endian 4 bytes
-    s_int_byte1 = CHR(scaled_x MOD 256)
-    s_int_byte2 = CHR((scaled_x DIV 256) MOD 256)
-    s_int_byte3 = CHR((scaled_x DIV 65536) MOD 256)
-    s_int_byte4 = CHR((scaled_x DIV 16777216) MOD 256)
+    -- Write X as little-endian 4 bytes (two's complement safe)
+    IF scaled_x >= 0 THEN
+      b1_i = (scaled_x MOD 256)
+      b2_i = ((scaled_x DIV 256) MOD 256)
+      b3_i = ((scaled_x DIV 65536) MOD 256)
+      b4_i = ((scaled_x DIV 16777216) MOD 256)
+    ELSE
+      npos = -scaled_x - 1
+      t1 = (npos MOD 256)
+      t2 = ((npos DIV 256) MOD 256)
+      t3 = ((npos DIV 65536) MOD 256)
+      t4 = ((npos DIV 16777216) MOD 256)
+      b1_i = 255 - t1
+      b2_i = 255 - t2
+      b3_i = 255 - t3
+      b4_i = 255 - t4
+    ENDIF
+    s_int_byte1 = CHR(b1_i)
+    s_int_byte2 = CHR(b2_i)
+    s_int_byte3 = CHR(b3_i)
+    s_int_byte4 = CHR(b4_i)
     packed_int_str = s_int_byte1 + s_int_byte2 + s_int_byte3 + s_int_byte4
+    IF g_debug_bytes_enabled THEN
+      WRITE g_log_file(log_prefix, 'DEBUG [BYTES OUT] PX: ', b1_i, ' ', b2_i, ' ', b3_i, ' ', b4_i, CR)
+    ENDIF
     WRITE g_file_var(packed_int_str::KAREL_INT_SIZE)
     local_status = IO_STATUS(g_file_var)
     IF local_status <> SUCCESS_STATUS THEN
@@ -281,12 +303,31 @@ ROUTINE send_pose_data(pose : XYZWPR; log_prefix : STRING) : INTEGER
       RETURN(local_status)
     ENDIF
     
-    -- Write Y as little-endian 4 bytes
-    s_int_byte1 = CHR(scaled_y MOD 256)
-    s_int_byte2 = CHR((scaled_y DIV 256) MOD 256)
-    s_int_byte3 = CHR((scaled_y DIV 65536) MOD 256)
-    s_int_byte4 = CHR((scaled_y DIV 16777216) MOD 256)
+    -- Write Y as little-endian 4 bytes (two's complement safe)
+    IF scaled_y >= 0 THEN
+      b1_i = (scaled_y MOD 256)
+      b2_i = ((scaled_y DIV 256) MOD 256)
+      b3_i = ((scaled_y DIV 65536) MOD 256)
+      b4_i = ((scaled_y DIV 16777216) MOD 256)
+    ELSE
+      npos = -scaled_y - 1
+      t1 = (npos MOD 256)
+      t2 = ((npos DIV 256) MOD 256)
+      t3 = ((npos DIV 65536) MOD 256)
+      t4 = ((npos DIV 16777216) MOD 256)
+      b1_i = 255 - t1
+      b2_i = 255 - t2
+      b3_i = 255 - t3
+      b4_i = 255 - t4
+    ENDIF
+    s_int_byte1 = CHR(b1_i)
+    s_int_byte2 = CHR(b2_i)
+    s_int_byte3 = CHR(b3_i)
+    s_int_byte4 = CHR(b4_i)
     packed_int_str = s_int_byte1 + s_int_byte2 + s_int_byte3 + s_int_byte4
+    IF g_debug_bytes_enabled THEN
+      WRITE g_log_file(log_prefix, 'DEBUG [BYTES OUT] PY: ', b1_i, ' ', b2_i, ' ', b3_i, ' ', b4_i, CR)
+    ENDIF
     WRITE g_file_var(packed_int_str::KAREL_INT_SIZE)
     local_status = IO_STATUS(g_file_var)
     IF local_status <> SUCCESS_STATUS THEN
@@ -295,12 +336,31 @@ ROUTINE send_pose_data(pose : XYZWPR; log_prefix : STRING) : INTEGER
       RETURN(local_status)
     ENDIF
     
-    -- Write Z as little-endian 4 bytes
-    s_int_byte1 = CHR(scaled_z MOD 256)
-    s_int_byte2 = CHR((scaled_z DIV 256) MOD 256)
-    s_int_byte3 = CHR((scaled_z DIV 65536) MOD 256)
-    s_int_byte4 = CHR((scaled_z DIV 16777216) MOD 256)
+    -- Write Z as little-endian 4 bytes (two's complement safe)
+    IF scaled_z >= 0 THEN
+      b1_i = (scaled_z MOD 256)
+      b2_i = ((scaled_z DIV 256) MOD 256)
+      b3_i = ((scaled_z DIV 65536) MOD 256)
+      b4_i = ((scaled_z DIV 16777216) MOD 256)
+    ELSE
+      npos = -scaled_z - 1
+      t1 = (npos MOD 256)
+      t2 = ((npos DIV 256) MOD 256)
+      t3 = ((npos DIV 65536) MOD 256)
+      t4 = ((npos DIV 16777216) MOD 256)
+      b1_i = 255 - t1
+      b2_i = 255 - t2
+      b3_i = 255 - t3
+      b4_i = 255 - t4
+    ENDIF
+    s_int_byte1 = CHR(b1_i)
+    s_int_byte2 = CHR(b2_i)
+    s_int_byte3 = CHR(b3_i)
+    s_int_byte4 = CHR(b4_i)
     packed_int_str = s_int_byte1 + s_int_byte2 + s_int_byte3 + s_int_byte4
+    IF g_debug_bytes_enabled THEN
+      WRITE g_log_file(log_prefix, 'DEBUG [BYTES OUT] PZ: ', b1_i, ' ', b2_i, ' ', b3_i, ' ', b4_i, CR)
+    ENDIF
     WRITE g_file_var(packed_int_str::KAREL_INT_SIZE)
     local_status = IO_STATUS(g_file_var)
     IF local_status <> SUCCESS_STATUS THEN
@@ -309,12 +369,31 @@ ROUTINE send_pose_data(pose : XYZWPR; log_prefix : STRING) : INTEGER
       RETURN(local_status)
     ENDIF
     
-    -- Write W as little-endian 4 bytes
-    s_int_byte1 = CHR(scaled_w MOD 256)
-    s_int_byte2 = CHR((scaled_w DIV 256) MOD 256)
-    s_int_byte3 = CHR((scaled_w DIV 65536) MOD 256)
-    s_int_byte4 = CHR((scaled_w DIV 16777216) MOD 256)
+    -- Write W as little-endian 4 bytes (two's complement safe)
+    IF scaled_w >= 0 THEN
+      b1_i = (scaled_w MOD 256)
+      b2_i = ((scaled_w DIV 256) MOD 256)
+      b3_i = ((scaled_w DIV 65536) MOD 256)
+      b4_i = ((scaled_w DIV 16777216) MOD 256)
+    ELSE
+      npos = -scaled_w - 1
+      t1 = (npos MOD 256)
+      t2 = ((npos DIV 256) MOD 256)
+      t3 = ((npos DIV 65536) MOD 256)
+      t4 = ((npos DIV 16777216) MOD 256)
+      b1_i = 255 - t1
+      b2_i = 255 - t2
+      b3_i = 255 - t3
+      b4_i = 255 - t4
+    ENDIF
+    s_int_byte1 = CHR(b1_i)
+    s_int_byte2 = CHR(b2_i)
+    s_int_byte3 = CHR(b3_i)
+    s_int_byte4 = CHR(b4_i)
     packed_int_str = s_int_byte1 + s_int_byte2 + s_int_byte3 + s_int_byte4
+    IF g_debug_bytes_enabled THEN
+      WRITE g_log_file(log_prefix, 'DEBUG [BYTES OUT] PW: ', b1_i, ' ', b2_i, ' ', b3_i, ' ', b4_i, CR)
+    ENDIF
     WRITE g_file_var(packed_int_str::KAREL_INT_SIZE)
     local_status = IO_STATUS(g_file_var)
     IF local_status <> SUCCESS_STATUS THEN
@@ -323,12 +402,31 @@ ROUTINE send_pose_data(pose : XYZWPR; log_prefix : STRING) : INTEGER
       RETURN(local_status)
     ENDIF
     
-    -- Write P as little-endian 4 bytes
-    s_int_byte1 = CHR(scaled_p MOD 256)
-    s_int_byte2 = CHR((scaled_p DIV 256) MOD 256)
-    s_int_byte3 = CHR((scaled_p DIV 65536) MOD 256)
-    s_int_byte4 = CHR((scaled_p DIV 16777216) MOD 256)
+    -- Write P as little-endian 4 bytes (two's complement safe)
+    IF scaled_p >= 0 THEN
+      b1_i = (scaled_p MOD 256)
+      b2_i = ((scaled_p DIV 256) MOD 256)
+      b3_i = ((scaled_p DIV 65536) MOD 256)
+      b4_i = ((scaled_p DIV 16777216) MOD 256)
+    ELSE
+      npos = -scaled_p - 1
+      t1 = (npos MOD 256)
+      t2 = ((npos DIV 256) MOD 256)
+      t3 = ((npos DIV 65536) MOD 256)
+      t4 = ((npos DIV 16777216) MOD 256)
+      b1_i = 255 - t1
+      b2_i = 255 - t2
+      b3_i = 255 - t3
+      b4_i = 255 - t4
+    ENDIF
+    s_int_byte1 = CHR(b1_i)
+    s_int_byte2 = CHR(b2_i)
+    s_int_byte3 = CHR(b3_i)
+    s_int_byte4 = CHR(b4_i)
     packed_int_str = s_int_byte1 + s_int_byte2 + s_int_byte3 + s_int_byte4
+    IF g_debug_bytes_enabled THEN
+      WRITE g_log_file(log_prefix, 'DEBUG [BYTES OUT] PP: ', b1_i, ' ', b2_i, ' ', b3_i, ' ', b4_i, CR)
+    ENDIF
     WRITE g_file_var(packed_int_str::KAREL_INT_SIZE)
     local_status = IO_STATUS(g_file_var)
     IF local_status <> SUCCESS_STATUS THEN
@@ -337,12 +435,31 @@ ROUTINE send_pose_data(pose : XYZWPR; log_prefix : STRING) : INTEGER
       RETURN(local_status)
     ENDIF
     
-    -- Write R as little-endian 4 bytes
-    s_int_byte1 = CHR(scaled_r MOD 256)
-    s_int_byte2 = CHR((scaled_r DIV 256) MOD 256)
-    s_int_byte3 = CHR((scaled_r DIV 65536) MOD 256)
-    s_int_byte4 = CHR((scaled_r DIV 16777216) MOD 256)
+    -- Write R as little-endian 4 bytes (two's complement safe)
+    IF scaled_r >= 0 THEN
+      b1_i = (scaled_r MOD 256)
+      b2_i = ((scaled_r DIV 256) MOD 256)
+      b3_i = ((scaled_r DIV 65536) MOD 256)
+      b4_i = ((scaled_r DIV 16777216) MOD 256)
+    ELSE
+      npos = -scaled_r - 1
+      t1 = (npos MOD 256)
+      t2 = ((npos DIV 256) MOD 256)
+      t3 = ((npos DIV 65536) MOD 256)
+      t4 = ((npos DIV 16777216) MOD 256)
+      b1_i = 255 - t1
+      b2_i = 255 - t2
+      b3_i = 255 - t3
+      b4_i = 255 - t4
+    ENDIF
+    s_int_byte1 = CHR(b1_i)
+    s_int_byte2 = CHR(b2_i)
+    s_int_byte3 = CHR(b3_i)
+    s_int_byte4 = CHR(b4_i)
     packed_int_str = s_int_byte1 + s_int_byte2 + s_int_byte3 + s_int_byte4
+    IF g_debug_bytes_enabled THEN
+      WRITE g_log_file(log_prefix, 'DEBUG [BYTES OUT] PR: ', b1_i, ' ', b2_i, ' ', b3_i, ' ', b4_i, CR)
+    ENDIF
     WRITE g_file_var(packed_int_str::KAREL_INT_SIZE)
     local_status = IO_STATUS(g_file_var)
     IF local_status <> SUCCESS_STATUS THEN
@@ -351,12 +468,31 @@ ROUTINE send_pose_data(pose : XYZWPR; log_prefix : STRING) : INTEGER
       RETURN(local_status)
     ENDIF
     
-    -- Write R4 as little-endian 4 bytes
-    s_int_byte1 = CHR(scaled_r4 MOD 256)
-    s_int_byte2 = CHR((scaled_r4 DIV 256) MOD 256)
-    s_int_byte3 = CHR((scaled_r4 DIV 65536) MOD 256)
-    s_int_byte4 = CHR((scaled_r4 DIV 16777216) MOD 256)
+    -- Write R4 as little-endian 4 bytes (two's complement safe)
+    IF scaled_r4 >= 0 THEN
+      b1_i = (scaled_r4 MOD 256)
+      b2_i = ((scaled_r4 DIV 256) MOD 256)
+      b3_i = ((scaled_r4 DIV 65536) MOD 256)
+      b4_i = ((scaled_r4 DIV 16777216) MOD 256)
+    ELSE
+      npos = -scaled_r4 - 1
+      t1 = (npos MOD 256)
+      t2 = ((npos DIV 256) MOD 256)
+      t3 = ((npos DIV 65536) MOD 256)
+      t4 = ((npos DIV 16777216) MOD 256)
+      b1_i = 255 - t1
+      b2_i = 255 - t2
+      b3_i = 255 - t3
+      b4_i = 255 - t4
+    ENDIF
+    s_int_byte1 = CHR(b1_i)
+    s_int_byte2 = CHR(b2_i)
+    s_int_byte3 = CHR(b3_i)
+    s_int_byte4 = CHR(b4_i)
     packed_int_str = s_int_byte1 + s_int_byte2 + s_int_byte3 + s_int_byte4
+    IF g_debug_bytes_enabled THEN
+      WRITE g_log_file(log_prefix, 'DEBUG [BYTES OUT] PR4: ', b1_i, ' ', b2_i, ' ', b3_i, ' ', b4_i, CR)
+    ENDIF
     WRITE g_file_var(packed_int_str::KAREL_INT_SIZE) -- 4th rotation component
     local_status = IO_STATUS(g_file_var)
     IF local_status <> SUCCESS_STATUS THEN
@@ -373,6 +509,11 @@ ROUTINE send_data_integers(data_array : ARRAY[*] OF INTEGER; array_size : INTEGE
   VAR
     i                  : INTEGER
     req_data_int_val   : INTEGER
+    b1_i               : INTEGER
+    b2_i               : INTEGER
+    b3_i               : INTEGER
+    b4_i               : INTEGER
+    npos, t1, t2, t3, t4 : INTEGER
     s_int_byte1        : STRING[1]
     s_int_byte2        : STRING[1]
     s_int_byte3        : STRING[1]
@@ -384,10 +525,27 @@ ROUTINE send_data_integers(data_array : ARRAY[*] OF INTEGER; array_size : INTEGE
     
     FOR i = 1 TO array_size DO
       req_data_int_val = data_array[i]
-      s_int_byte1 = CHR(req_data_int_val MOD 256)
-      s_int_byte2 = CHR((req_data_int_val DIV 256) MOD 256)
-      s_int_byte3 = CHR((req_data_int_val DIV 65536) MOD 256)
-      s_int_byte4 = CHR((req_data_int_val DIV 16777216) MOD 256)
+      -- Write data int as little-endian 4 bytes (two's complement safe)
+      IF req_data_int_val >= 0 THEN
+        b1_i = (req_data_int_val MOD 256)
+        b2_i = ((req_data_int_val DIV 256) MOD 256)
+        b3_i = ((req_data_int_val DIV 65536) MOD 256)
+        b4_i = ((req_data_int_val DIV 16777216) MOD 256)
+      ELSE
+        npos = -req_data_int_val - 1
+        t1 = (npos MOD 256)
+        t2 = ((npos DIV 256) MOD 256)
+        t3 = ((npos DIV 65536) MOD 256)
+        t4 = ((npos DIV 16777216) MOD 256)
+        b1_i = 255 - t1
+        b2_i = 255 - t2
+        b3_i = 255 - t3
+        b4_i = 255 - t4
+      ENDIF
+      s_int_byte1 = CHR(b1_i)
+      s_int_byte2 = CHR(b2_i)
+      s_int_byte3 = CHR(b3_i)
+      s_int_byte4 = CHR(b4_i)
       req_packed_int_str = s_int_byte1 + s_int_byte2 + s_int_byte3 + s_int_byte4
       
       WRITE g_file_var(req_packed_int_str::KAREL_INT_SIZE)
