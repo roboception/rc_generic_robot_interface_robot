@@ -20,26 +20,20 @@ ROUTINE hec_init(pipeline_id : INTEGER) : INTEGER
     ENDFOR
     
     -- Use comprehensive communication helper
-    RETURN(gri_communicate_for_confirmation(REQ_ACTION_HEC_INIT, 0, dummy_pose, req_data_int_arr, LPRE_HEC_INIT))
+    RETURN(gri_communicate_for_confirmation(REQ_ACTION_HEC_INIT, 0, req_data_int_arr, LPRE_HEC_INIT))
   END hec_init
 
 -- HEC Function: Set pose for calibration  
 ROUTINE hec_set_pose(pipeline_id : INTEGER; slot_id : INTEGER) : INTEGER
   VAR
-    current_pose : XYZWPR
     req_data_int_arr : ARRAY[NUM_DATA_INTS_TO_SEND] OF INTEGER
     i : INTEGER
     dummy_int : INTEGER
     
   BEGIN
-    -- Get current robot pose
-    dummy_int = 0
-    current_pose = CURPOS(dummy_int, dummy_int)
-    
     WRITE TPDISPLAY(LPRE_HEC_SET, 'Setting pose ', slot_id, ' for pipeline ', pipeline_id, CR)
     WRITE g_log_file(LPRE_HEC_SET, 'Setting pose ', slot_id, ' for pipeline ', pipeline_id, CR)
-    WRITE g_log_file(LPRE_HEC_SET, 'X=', current_pose.X::6::1, ' Y=', current_pose.Y::6::1, ' Z=', current_pose.Z::6::1, CR)
-    WRITE g_log_file(LPRE_HEC_SET, 'W=', current_pose.W::6::1, ' P=', current_pose.P::6::1, ' R=', current_pose.R::6::1, CR)
+    -- Pose will be captured at send time in send_pose_data
     
     -- Send data integers: pipeline_id in data1, slot_id in data2, others zero
     req_data_int_arr[1] = pipeline_id
@@ -49,7 +43,7 @@ ROUTINE hec_set_pose(pipeline_id : INTEGER; slot_id : INTEGER) : INTEGER
     ENDFOR
     
     -- Use comprehensive communication helper
-    RETURN(gri_communicate_for_confirmation(REQ_ACTION_HEC_SET_POSE, 0, current_pose, req_data_int_arr, LPRE_HEC_SET))
+    RETURN(gri_communicate_for_confirmation(REQ_ACTION_HEC_SET_POSE, 0, req_data_int_arr, LPRE_HEC_SET))
   END hec_set_pose
 
 -- HEC Function: Perform calibration
@@ -70,5 +64,5 @@ ROUTINE hec_calibrate(pipeline_id : INTEGER) : INTEGER
     ENDFOR
     
     -- Use comprehensive communication helper
-    RETURN(gri_communicate_for_confirmation(REQ_ACTION_HEC_CALIBRATE, 0, dummy_pose, req_data_int_arr, LPRE_HEC_CALIB))
+    RETURN(gri_communicate_for_confirmation(REQ_ACTION_HEC_CALIBRATE, 0, req_data_int_arr, LPRE_HEC_CALIB))
   END hec_calibrate 

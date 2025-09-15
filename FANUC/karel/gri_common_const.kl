@@ -241,9 +241,10 @@ ROUTINE send_request_header(action : INTEGER; job_id : INTEGER; log_prefix : STR
   END send_request_header
 
 -- Common routine to send pose data (convert real to scaled int32)
-ROUTINE send_pose_data(pose : XYZWPR; log_prefix : STRING) : INTEGER
+ROUTINE send_pose_data(log_prefix : STRING) : INTEGER
   VAR
     local_status : INTEGER
+    current_pose : XYZWPR
     scaled_x, scaled_y, scaled_z : INTEGER
     scaled_w, scaled_p, scaled_r : INTEGER
     scaled_r4 : INTEGER
@@ -258,17 +259,22 @@ ROUTINE send_pose_data(pose : XYZWPR; log_prefix : STRING) : INTEGER
   BEGIN
     local_status = SUCCESS_STATUS
     
+    -- Read current robot pose immediately before packing/sending
+    $GROUP[1].$UFRAME = $MNUFRAME[1,0]  -- Set to World Frame (base)
+    $GROUP[1].$UTOOL = $MNUTOOL[1,0]    -- Set to default tool frame (flange)
+    current_pose = CURPOS(0, 0)
+    
     -- Convert real values to scaled int32 values
-    scaled_x = ROUND(pose.X * POSE_SCALE_FACTOR_REAL)
-    scaled_y = ROUND(pose.Y * POSE_SCALE_FACTOR_REAL)
-    scaled_z = ROUND(pose.Z * POSE_SCALE_FACTOR_REAL)
-    scaled_w = ROUND(pose.W * POSE_SCALE_FACTOR_REAL)
-    scaled_p = ROUND(pose.P * POSE_SCALE_FACTOR_REAL)
-    scaled_r = ROUND(pose.R * POSE_SCALE_FACTOR_REAL)
+    scaled_x = ROUND(current_pose.X * POSE_SCALE_FACTOR_REAL)
+    scaled_y = ROUND(current_pose.Y * POSE_SCALE_FACTOR_REAL)
+    scaled_z = ROUND(current_pose.Z * POSE_SCALE_FACTOR_REAL)
+    scaled_w = ROUND(current_pose.W * POSE_SCALE_FACTOR_REAL)
+    scaled_p = ROUND(current_pose.P * POSE_SCALE_FACTOR_REAL)
+    scaled_r = ROUND(current_pose.R * POSE_SCALE_FACTOR_REAL)
     scaled_r4 = 0  -- 4th rotation component is 0
     
     -- Always-on request pose summary
-    WRITE g_log_file(log_prefix, 'pose: X=', pose.X::7::3, ' Y=', pose.Y::7::3, ' Z=', pose.Z::7::3, ' W=', pose.W::7::3, ' P=', pose.P::7::3, ' R=', pose.R::7::3, CR)
+    WRITE g_log_file(log_prefix, 'pose: X=', current_pose.X::7::3, ' Y=', current_pose.Y::7::3, ' Z=', current_pose.Z::7::3, ' W=', current_pose.W::7::3, ' P=', current_pose.P::7::3, ' R=', current_pose.R::7::3, CR)
 
     -- Write X as little-endian 4 bytes (two's complement safe)
     IF scaled_x >= 0 THEN
@@ -880,7 +886,7 @@ ROUTINE consume_response_payload(log_prefix : STRING) : INTEGER
   END consume_response_payload
 
 -- Helper routine to read pose from response and convert to XYZWPR format
-ROUTINE read_response_pose_to_xyzwpr(pose_result : XYZWPR; current_pose : XYZWPR; log_prefix : STRING) : INTEGER
+ROUTINE read_response_pose_to_xyzwpr(pose_result : XYZWPR; log_prefix : STRING) : INTEGER
   VAR
     pose_reals : ARRAY[7] OF REAL
     local_status : INTEGER
@@ -897,8 +903,7 @@ ROUTINE read_response_pose_to_xyzwpr(pose_result : XYZWPR; current_pose : XYZWPR
     pose_result.W = pose_reals[4]
     pose_result.P = pose_reals[5]
     pose_result.R = pose_reals[6]
-    -- Use current robot configuration for new pose
-    pose_result.config_data = current_pose.config_data
+    -- Keep existing config_data; do not modify here
     
     -- Log received pose
     WRITE TPDISPLAY(log_prefix, 'Received Pose:', CR)
@@ -914,7 +919,6 @@ ROUTINE read_response_pose_to_xyzwpr(pose_result : XYZWPR; current_pose : XYZWPR
 -- Helper routine for standard request sending (zero pose + zero data)
 ROUTINE send_request_with_auto_pose(action : INTEGER; job_id : INTEGER; log_prefix : STRING) : INTEGER
   VAR
-    current_pose : XYZWPR
     zero_data : ARRAY[NUM_DATA_INTS_TO_SEND] OF INTEGER
     local_status : INTEGER
     i : INTEGER
@@ -924,15 +928,11 @@ ROUTINE send_request_with_auto_pose(action : INTEGER; job_id : INTEGER; log_pref
       zero_data[i] = 0
     ENDFOR
     
-    -- Get current robot pose once (safe for most actions)
-    -- Note: status integers passed as 0 ignore detailed status
-    current_pose = CURPOS(0, 0)
-    
     -- Send request using existing helpers
     local_status = send_request_header(action, job_id, log_prefix)
     IF local_status <> SUCCESS_STATUS THEN RETURN(local_status); ENDIF
     
-    local_status = send_pose_data(current_pose, log_prefix)
+    local_status = send_pose_data(log_prefix)
     IF local_status <> SUCCESS_STATUS THEN RETURN(local_status); ENDIF
     
     local_status = send_data_integers(zero_data, NUM_DATA_INTS_TO_SEND, log_prefix)
@@ -968,7 +968,7 @@ ROUTINE log_raw_response_bytes(log_prefix : STRING) : INTEGER
   END log_raw_response_bytes
 
 -- Helper routine for full GRI communication with error handling
-ROUTINE gri_communicate_with_pose_result(action : INTEGER; job_id : INTEGER; result_pose : XYZWPR; rem_primary : INTEGER; rem_related : INTEGER; current_pose : XYZWPR; log_prefix : STRING) : INTEGER
+ROUTINE gri_communicate_with_pose_result(action : INTEGER; job_id : INTEGER; result_pose : XYZWPR; rem_primary : INTEGER; rem_related : INTEGER; log_prefix : STRING) : INTEGER
   VAR
     local_status : INTEGER
     server_error : INTEGER
@@ -989,7 +989,7 @@ ROUTINE gri_communicate_with_pose_result(action : INTEGER; job_id : INTEGER; res
     -- Handle different server responses
     IF server_error = GRI_ERR_NO_ERROR THEN
       -- Success: Read pose and data
-      local_status = read_response_pose_to_xyzwpr(result_pose, current_pose, log_prefix)
+      local_status = read_response_pose_to_xyzwpr(result_pose, log_prefix)
       IF local_status <> SUCCESS_STATUS THEN RETURN(GRI_ERR_INTERNAL_ERROR); ENDIF
       
       local_status = read_response_data_integers(response_data, RESP_NUM_DATA_INTS_RECV, log_prefix)
@@ -1060,23 +1060,13 @@ ROUTINE gri_communicate_for_status(action : INTEGER; job_id : INTEGER; log_prefi
   END gri_communicate_for_status 
 
 -- Helper routine for confirmation functions (like HEC routines)
-ROUTINE gri_communicate_for_confirmation(action : INTEGER; job_id : INTEGER; pose_to_send : XYZWPR; data_to_send : ARRAY[*] OF INTEGER; log_prefix : STRING) : INTEGER
+ROUTINE gri_communicate_for_confirmation(action : INTEGER; job_id : INTEGER; data_to_send : ARRAY[*] OF INTEGER; log_prefix : STRING) : INTEGER
   VAR
     local_status : INTEGER
     server_error : INTEGER
     dummy_pose_reals : ARRAY[7] OF REAL
     dummy_data_ints : ARRAY[RESP_NUM_DATA_INTS_RECV] OF INTEGER
-    pose_to_write : XYZWPR
-    curpose_dummy : XYZWPR
   BEGIN
-    -- Determine which pose to send: use provided pose only for HEC_SET_POSE; otherwise auto CURPOS
-    IF action = REQ_ACTION_HEC_SET_POSE THEN
-      pose_to_write = pose_to_send
-    ELSE
-      curpose_dummy = CURPOS(0, 0)
-      pose_to_write = curpose_dummy
-    ENDIF
-
     -- Use modular routine to build and send request header
     local_status = send_request_header(action, job_id, log_prefix)
     IF local_status <> SUCCESS_STATUS THEN
@@ -1084,7 +1074,7 @@ ROUTINE gri_communicate_for_confirmation(action : INTEGER; job_id : INTEGER; pos
     ENDIF
     
     -- Use modular routine to send pose data
-    local_status = send_pose_data(pose_to_write, log_prefix)
+    local_status = send_pose_data(log_prefix)
     IF local_status <> SUCCESS_STATUS THEN
       RETURN(GRI_ERR_INTERNAL_ERROR)
     ENDIF

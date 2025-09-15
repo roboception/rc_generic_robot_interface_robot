@@ -4,21 +4,14 @@
 ROUTINE trigger_job_sync(job_id_to_send : INTEGER; result_pose : XYZWPR; rem_primary : INTEGER; rem_related : INTEGER) : INTEGER
   VAR
     local_status : INTEGER
-    dummy_int : INTEGER
-    current_pose : XYZWPR
     
   BEGIN
     local_status = SUCCESS_STATUS
-    dummy_int = 0
-    
-    -- Get current robot pose for configuration data
-    current_pose = CURPOS(dummy_int, dummy_int)
-    
     WRITE TPDISPLAY(LPRE_SYNC, 'Triggering sync job: ', job_id_to_send, CR)
     WRITE g_log_file(LPRE_SYNC, 'Triggering sync job: ', job_id_to_send, CR)
     
     -- Use comprehensive communication helper
-    local_status = gri_communicate_with_pose_result(REQ_ACTION_TRIGGER_JOB_SYNC, job_id_to_send, result_pose, rem_primary, rem_related, current_pose, LPRE_SYNC)
+    local_status = gri_communicate_with_pose_result(REQ_ACTION_TRIGGER_JOB_SYNC, job_id_to_send, result_pose, rem_primary, rem_related, LPRE_SYNC)
     
     RETURN(local_status)
   END trigger_job_sync

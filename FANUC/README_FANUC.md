@@ -81,7 +81,7 @@ Optional example programs (load .ls files):
 
 3. **Example Programs**
    - `GRI_EXAMPLE_PICK_AND_PLACE.LS`: Open and run to see a complete cycle. It starts communication, triggers a sync job, checks `R[150]`, uses `PR[53]` as the grasp pose, computes a simple pre‑grasp (`PR[54]` = `PR[53]` with Z offset), moves, and shuts down communication.
-   - `GRI_EXAMPLE_HEC.LS`: Open and teach P[1]…P[8] with TOUCHUP, then run. It opens communication, calls `GRI_HEC_INIT(0)`, steps through `GRI_HEC_SET_POSE(0,slot)` for the 8 taught poses (auto‑captures `LPOS`), and calls `GRI_HEC_CALIBRATE(0)`.
+   - `GRI_EXAMPLE_HEC.LS`: Open and teach P[1]…P[8] with TOUCHUP, then run. It opens communication, calls `GRI_HEC_INIT(0)`, steps through `GRI_HEC_SET_POSE(0,slot)` for the 8 taught poses (automatically captures current robot position), and calls `GRI_HEC_CALIBRATE(0)`.
 
 ## Usage
 
@@ -109,7 +109,6 @@ Optional example programs (load .ls files):
 
 - Position registers
   - `PR[53]` `gri pose`: returned pose for job/next/related
-  - `PR[52]` `gri hec pose`: calibration pose (sent by `GRI_HEC_SET_POSE`)
 
 - Notes on `R[150]/R[151]`
   - Pose-returning calls (`GRI_TRIGGER_JOB_SYNC`, `GRI_GET_NEXT_GRASP`, `GRI_GET_RELATED_GRASP`):
@@ -237,17 +236,14 @@ IF R[150:gri obj status]<>1,JMP LBL[error] ;
 
 ! Capture calibration poses
 J P[10:cal_pos_1] 100% FINE ;
-PR[52:hec_pose] = LPOS ;
 CALL GRI_HEC_SET_POSE(0,1) ;
 
 J P[11:cal_pos_2] 100% FINE ;
-PR[52:hec_pose] = LPOS ;
 CALL GRI_HEC_SET_POSE(0,2) ;
 
 ...
 
 J P[12:cal_pos_8] 100% FINE ;
-PR[52:hec_pose] = LPOS ;
 CALL GRI_HEC_SET_POSE(0,8) ;
 
 ! Execute calibration
@@ -274,7 +270,7 @@ CALL GRI_QUIT ;
 | Function | Description |
 |----------|-------------|
 | `GRI_HEC_INIT(pipeline)` | Initialize hand-eye calibration |
-| `GRI_HEC_SET_POSE(pipeline,slot)` | Record calibration pose |
+| `GRI_HEC_SET_POSE(pipeline,slot)` | Record calibration pose (automatically captures current robot position) |
 | `GRI_HEC_CALIBRATE(pipeline)` | Execute calibration calculation |
 
 ### System Control

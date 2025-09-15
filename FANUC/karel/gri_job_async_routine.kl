@@ -8,13 +8,10 @@ ROUTINE trigger_job_async(job_id_to_send : INTEGER)
     server_error        : INTEGER
 
     -- Request Data
-    flange_pose_to_send : XYZWPR
-    dummy_int           : INTEGER -- For CURPOS
     req_data_int_arr    : ARRAY[NUM_DATA_INTS_TO_SEND] OF INTEGER
 
   BEGIN
     local_status = SUCCESS_STATUS
-    dummy_int = 0
 
     FOR i = 1 TO NUM_DATA_INTS_TO_SEND DO
       req_data_int_arr[i] = i * 100 + job_id_to_send
@@ -23,7 +20,6 @@ ROUTINE trigger_job_async(job_id_to_send : INTEGER)
     WRITE TPDISPLAY(LPRE_ASYNC, 'Triggering Job: ', job_id_to_send, CR)
     WRITE g_log_file(LPRE_ASYNC, 'Triggering Job: ', job_id_to_send, CR)
     
-    flange_pose_to_send = CURPOS(dummy_int, dummy_int)
 
     -- Use modular routine to build and send request header
     local_status = send_request_header(REQ_ACTION_TRIGGER_JOB_ASYNC, job_id_to_send, LPRE_ASYNC)
@@ -31,8 +27,8 @@ ROUTINE trigger_job_async(job_id_to_send : INTEGER)
       RETURN
     ENDIF
     
-    -- Use modular routine to send pose data
-    local_status = send_pose_data(flange_pose_to_send, LPRE_ASYNC)
+    -- Use modular routine to send pose data (auto CURPOS)
+    local_status = send_pose_data(LPRE_ASYNC)
     IF local_status <> SUCCESS_STATUS THEN 
       RETURN
     ENDIF
