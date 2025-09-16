@@ -24,7 +24,7 @@ The interface uses familiar FANUC programming patterns:
 CALL GRI_TRIGGER_JOB_SYNC(1) ;
 
 ! Check result status
-IF R[150:gri obj status]=20,JMP LBL[object_found] ;
+IF R[150:gri error code]=0,JMP LBL[object_found] ;
 ```
 
 All communication complexity is handled internally, exposing only the essential functions needed for robot programming.
@@ -100,22 +100,25 @@ Optional example programs (load .ls files):
 - `R[143]` `gri param 1`: slot id (HEC_SET_POSE)
 - `R[144]` `gri param 2`: reserved
 
-**Status Registers (KAREL → TP):**
-- `R[149]` `gri comm status`: handshake; 0 ready, -1 error/not running
-- `R[150]` `gri obj status`: function result for TP use (see notes below)
-- `R[151]` `gri status`: completion/error; 99 while processing, 0 on success, otherwise GRI error code
-- `R[152]` `gri data 1`: remaining primary items (e.g., for next/related)
-- `R[153]` `gri data 2`: remaining related items
+**Status Registers (KAREL → TP) - New uniform mapping:**
+- `R[149]` `gri comm status`: handshake; 0 ready, -1 stopped
+- `R[150]` `gri error code`: signed GRI status (<0 error, 0 ok, >0 warning)
+- `R[151]` `module return`: `data_1` (module/vendor code; can be <0/0/>0)
+- `R[152]` `remaining primary`: `data_2`
+- `R[153]` `remaining related`: `data_3`
+- `R[154]..R[159]` = `data_4..data_9`
+- `R[160]` = `data_10`
 
 - Position registers
   - `PR[53]` `gri pose`: returned pose for job/next/related
 
 - Notes on `R[150]/R[151]`
   - Pose-returning calls (`GRI_TRIGGER_JOB_SYNC`, `GRI_GET_NEXT_GRASP`, `GRI_GET_RELATED_GRASP`):
-    - `R[150] = 20` → pose found; pose in `PR[53]`; remaining counts in `R[152]/R[153]`
-    - If no pose or other error: `R[150] = 23`, and `R[151]` holds the specific error code (e.g., `13` = no poses)
-  - Confirmation calls (`GRI_TRIGGER_JOB_ASYNC`, `GRI_HEC_*`): `R[150] = 1` on success; otherwise `23` with `R[151]` error code
-  - Status call (`GRI_GET_JOB_STATUS`): `R[150] = 1|2|3|4` → INACTIVE|RUNNING|DONE|FAILED
+    - On success: `R[150] = 0`; pose in `PR[53]`; counts in `R[152]/R[153]`
+    - No poses: `R[150] = 1`
+    - Errors: `R[150] < 0` (e.g., `-4` API_RESPONSE_ERROR; raw cause may be in `R[151]`)
+  - Confirmation calls (`GRI_TRIGGER_JOB_ASYNC`, `GRI_HEC_*`): `R[150] = 0` on success; otherwise `<0` error, with detail possibly in `R[151]`
+  - Status call (`GRI_GET_JOB_STATUS`): `R[150] = 0` on success; `R[152] = 1|2|3|4` → INACTIVE|RUNNING|DONE|FAILED
 
 
 
@@ -131,7 +134,7 @@ Optional example programs (load .ls files):
   CALL GRI_TRIGGER_JOB_SYNC(1) ;
   
   ! Check if object was detected
-  IF R[150:gri obj status]=20,JMP LBL[pick_object] ;
+  IF R[150:gri error code]=0,JMP LBL[pick_object] ;
   MESSAGE[No parts detected] ;
   JMP LBL[cleanup] ;
   
@@ -158,7 +161,7 @@ Optional example programs (load .ls files):
   CALL GRI_GET_NEXT_GRASP(1) ;
   
   ! Exit if no more objects
-  IF R[150:gri obj status]<>20,JMP LBL[finished] ;
+  IF R[150:gri error code]<>0,JMP LBL[finished] ;
   
   ! Process detected object
   J P[1:approach] 100% FINE ;
@@ -182,7 +185,7 @@ Optional example programs (load .ls files):
 ```fanuc
 ! Start vision job in background
 CALL GRI_TRIGGER_JOB_ASYNC(1) ;
-IF R[150:gri obj status]<>1, JMP LBL[async_failed] ;
+IF R[150:gri error code]<>0, JMP LBL[async_failed] ;
 
 ! Continue with other tasks
 CALL OTHER_ROBOT_OPERATIONS ;
@@ -190,13 +193,13 @@ CALL OTHER_ROBOT_OPERATIONS ;
 ! Poll job status until done
 LBL[poll] ;
 CALL GRI_GET_JOB_STATUS(1) ;
-IF R[150:gri obj status]=2, JMP LBL[poll] ;      -- RUNNING
-IF R[150:gri obj status]<>3, JMP LBL[async_failed] ; -- not DONE
+IF R[152:gri data 1]=2, JMP LBL[poll] ;      -- RUNNING
+IF R[152:gri data 1]<>3, JMP LBL[async_failed] ; -- not DONE
 
 ! Job is DONE → fetch results
 LBL[next] ;
 CALL GRI_GET_NEXT_GRASP(1) ;
-IF R[150:gri obj status]<>20, JMP LBL[finished] ;
+IF R[150:gri error code]<>0, JMP LBL[finished] ;
 L PR[53:gri pose] 150mm/sec FINE ;
 IF R[152:gri data 1]>0, JMP LBL[next] ;
 LBL[finished] ;
@@ -209,15 +212,7 @@ LBL[after] ;
 
 ## Status Codes
 
-The system uses register R[150] for all status reporting:
-
-| Status | Description |
-|--------|-------------|
-| 20 | Object detected, pose available in PR[53] |
-| 23 | Error occurred (check `R[151]` for specific code, e.g., 13 = no poses) |
-| 1 | Success (for confirmation functions like HEC, async trigger) |
-
-For job status (`GRI_GET_JOB_STATUS`): `R[150] = 1|2|3|4` → INACTIVE|RUNNING|DONE|FAILED.
+R[150] carries signed status: `<0` error, `0` ok, `>0` warning. For pose-returning calls, success (`0`) means a pose is available in `PR[53]`. For job status (`GRI_GET_JOB_STATUS`), `R[150]=0` on success and the job state is in `R[152]` (1..4).
 
 ## Hand-Eye Calibration
 
@@ -232,7 +227,7 @@ Quick start using the example program:
 ! Initialize calibration
 CALL GRI_OPEN_COMMUNICATION ;
 CALL GRI_HEC_INIT(0) ;
-IF R[150:gri obj status]<>1,JMP LBL[error] ;
+IF R[150:gri error code]<>0,JMP LBL[error] ;
 
 ! Capture calibration poses
 J P[10:cal_pos_1] 100% FINE ;
@@ -248,7 +243,7 @@ CALL GRI_HEC_SET_POSE(0,8) ;
 
 ! Execute calibration
 CALL GRI_HEC_CALIBRATE(0) ;
-IF R[150:gri obj status]=1,MESSAGE[Calibration complete] ;
+IF R[150:gri error code]=0,MESSAGE[Calibration complete] ;
 
 CALL GRI_QUIT ;
 ```
@@ -315,6 +310,12 @@ The FANUC GRI client uses a layered architecture:
 - **Background Module**: Compiled KAREL `.pc` (`gri_comm_background.pc`) handling socket/protocol and register bridging
 - **TCP Socket**: Binary protocol communication with vision system
 
+### Pose Frame Behavior
+
+- The background module reads the current robot pose for protocol exchange as base (UF[0]) to flange (UT[0]).
+- Implementation detail: it temporarily saves and sets `$MNUFRAMENUM[1]`/`$MNUTOOLNUM[1]` to `0` only for the `CURPOS(0,0)` call, then restores the previous values immediately. This guarantees a deterministic world→flange pose independent of the active user/tool frames.
+- Future versions may replace this with a math-based conversion that avoids any temporary frame changes.
+
 ## Deployment Checklist
 
 - [ ] `gri_comm_background.pc` loaded
@@ -339,7 +340,7 @@ CALL SETUP_GRIPPER ;
 ! Add vision capability
 CALL GRI_OPEN_COMMUNICATION ;
 CALL GRI_TRIGGER_JOB_SYNC(1) ;
-IF R[150:gri obj status]=20,CALL PROCESS_VISION_RESULT ;
+IF R[150:gri error code]=0,CALL PROCESS_VISION_RESULT ;
 CALL GRI_QUIT ;
 
 ! Continue with existing logic
@@ -352,7 +353,7 @@ Integrate GRI error handling with your existing error management:
 
 ```fanuc
 CALL GRI_TRIGGER_JOB_SYNC(1) ;
-SELECT R[150:gri obj status] OF
+SELECT R[150:gri error code] OF
   CASE(20):
     CALL PROCESS_OBJECT ;
   CASE(23):
