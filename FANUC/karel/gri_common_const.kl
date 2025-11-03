@@ -8,18 +8,28 @@ CONST
   TIMEOUT_VALUE_MS = 5000   -- Socket timeout in milliseconds
   TIMEOUT_ERR = 2031        -- KAREL IO_STATUS code for timeout
 
-  -- GRI Protocol V2 Constants
-  REQ_MAGIC_NUM = 2
-  RESP_MAGIC_NUM = 2
+  -- GRI Protocol V1 Constants
+  -- 4-byte ASCII magic 'G','R','I','\0'
+  REQ_MAGIC_B1 = 71
+  REQ_MAGIC_B2 = 82
+  REQ_MAGIC_B3 = 73
+  REQ_MAGIC_B4 = 0
+  RESP_MAGIC_B1 = 71
+  RESP_MAGIC_B2 = 82
+  RESP_MAGIC_B3 = 73
+  RESP_MAGIC_B4 = 0
   REQ_PROTO_VER = 1
   RESP_PROTO_VER = 1
-  REQ_MSG_TOTAL_LEN = 50
-  RESP_MSG_TOTAL_LEN = 56
+  -- On-wire header uses 4-byte ASCII magic: 'G','R','I','\0'
+  REQ_MSG_TOTAL_LEN = 54
+  RESP_MSG_TOTAL_LEN = 80
 
-  -- Pose Format
-  REQ_POSE_FMT_XYZWPR_CUSTOM = 10 -- MM_WPR_FANUC
+  -- Pose Format (Protocol V1)
+  -- NOTE: Pose format is FIXED by the server specification for FANUC.
+  -- FANUC uses Euler ZYX backward in degrees: rot_1=W, rot_2=P, rot_3=R
+  REQ_POSE_FMT_EULER_ZYX_B_DEG = 26
 
-  -- GRI Protocol V2 Actions
+  -- GRI Protocol V1 Actions
   REQ_ACTION_UNKNOWN = 0
   REQ_ACTION_STATUS = 1
   REQ_ACTION_TRIGGER_JOB_SYNC = 2
@@ -40,49 +50,47 @@ CONST
   POSE_SCALE_FACTOR_REAL = 1000000.0  -- Real version for calculations
 
   -- Request Message Structure (Client sends X,Y,Z,W,P,R,R4 as scaled int32)
-  REQ_HEADER_LEN = 5
+  REQ_HEADER_LEN = 8
   REQ_NUM_POSE_INTS_SEND = 7  -- Client sends 7 int32s (X,Y,Z,W,P,R,R4) scaled by 10^6
   REQ_POSE_PAYLOAD_LEN = 28 -- REQ_NUM_POSE_INTS_SEND * KAREL_INT_SIZE (7*4)
   NUM_DATA_INTS_TO_SEND = 4
   REQ_DATA_PAYLOAD_LEN = 16 -- NUM_DATA_INTS_TO_SEND * KAREL_INT_SIZE (4*4)
 
   -- Response Message Structure (Server sends X,Y,Z,Q1,Q2,Q3,Q4 as scaled int32)
-  RESP_HEADER_LEN = 5  -- True header (magic, protocol, msg_len, pose_fmt, action)
-  RESP_STATUS_LEN = 3  -- Job ID (1) + Error Code (2)
-  RESP_HEADER_TOTAL_LEN = 8  -- RESP_HEADER_LEN + RESP_STATUS_LEN (5+3)
+  RESP_HEADER_LEN = 8  -- 4-byte magic + proto + msg_len + pose_fmt + action
+  RESP_STATUS_LEN = 4  -- Job ID (2) + Error Code (2)
+  RESP_HEADER_TOTAL_LEN = 12  -- RESP_HEADER_LEN + RESP_STATUS_LEN (8+4)
   RESP_NUM_POSE_INTS_RECV = 7  -- Server sends 7 int32s (X,Y,Z,Q1,Q2,Q3,Q4) scaled by 10^6
   RESP_POSE_PAYLOAD_LEN = 28 -- RESP_NUM_POSE_INTS_RECV * KAREL_INT_SIZE (7*4)
-  RESP_NUM_DATA_INTS_RECV = 5
-  RESP_DATA_PAYLOAD_LEN = 20 -- RESP_NUM_DATA_INTS_RECV * KAREL_INT_SIZE (5*4)
-  RESP_PADDING_LEN = 0 -- RESP_MSG_TOTAL_LEN - RESP_HEADER_TOTAL_LEN - RESP_POSE_PAYLOAD_LEN - RESP_DATA_PAYLOAD_LEN (56-8-28-20)
+  RESP_NUM_DATA_INTS_RECV = 10
+  RESP_DATA_PAYLOAD_LEN = 40 -- RESP_NUM_DATA_INTS_RECV * KAREL_INT_SIZE (10*4)
+  RESP_PADDING_LEN = 0 -- RESP_MSG_TOTAL_LEN - RESP_HEADER_TOTAL_LEN - RESP_POSE_PAYLOAD_LEN - RESP_DATA_PAYLOAD_LEN (80-12-28-40)
 
-  -- GRI Protocol V2 Error Codes
+  -- GRI Protocol V1 Error Codes (signed semantics)
+  -- Negative (<0) = error, 0 = success, Positive (>0) = warning
   GRI_ERR_NO_ERROR = 0
-  GRI_ERR_UNKNOWN_ERROR = 1
-  GRI_ERR_INTERNAL_ERROR = 2
-  GRI_ERR_API_NOT_REACHABLE = 3
-  GRI_ERR_PIPELINE_NOT_AVAILABLE = 4
-  GRI_ERR_INVALID_REQUEST_ERROR = 5
-  GRI_ERR_INVALID_REQUEST_LENGTH = 6
-  GRI_ERR_INVALID_ACTION = 7
-  GRI_ERR_PROCESSING_TIMEOUT = 8
-  GRI_ERR_UNKNOWN_PROTOCOL_VERSION = 9
-  GRI_ERR_JOB_DOES_NOT_EXIST = 10
-  GRI_ERR_JOB_CHANGED = 11
-  GRI_ERR_MISCONFIGURED_JOB = 12
-  GRI_ERR_NO_POSES_FOUND = 13
-  GRI_ERR_NO_ASSOCIATED_OBJECTS = 14
-  GRI_ERR_NO_RETURN_SPECIFIED = 15
-  GRI_ERR_JOB_STILL_RUNNING = 16
-  GRI_ERR_HEC_CONFIG_ERROR = 17
-  GRI_ERR_HEC_INIT_ERROR = 18
-  GRI_ERR_HEC_SET_POSE_ERROR = 19
-  GRI_ERR_HEC_CALIBRATE_ERROR = 20
-  GRI_ERR_HEC_INSUFFICIENT_DETECTION = 21
-  GRI_ERR_NOT_IMPLEMENTED = 100
-  GRI_ERR_API_ERROR = 101
-  GRI_ERR_API_RESPONSE_ERROR = 102
-  GRI_ERR_WRONG_PROTOCOL_FOR_RETURN = 103
+  GRI_ERR_UNKNOWN_ERROR = -1
+  GRI_ERR_INTERNAL_ERROR = -2
+  GRI_ERR_API_NOT_REACHABLE = -3
+  GRI_ERR_API_RESPONSE_ERROR = -4
+  GRI_ERR_PIPELINE_NOT_AVAILABLE = -5
+  GRI_ERR_INVALID_REQUEST_ERROR = -6
+  GRI_ERR_INVALID_REQUEST_LENGTH = -7
+  GRI_ERR_INVALID_ACTION = -8
+  GRI_ERR_PROCESSING_TIMEOUT = -9
+  GRI_ERR_UNKNOWN_PROTOCOL_VERSION = -10
+  GRI_ERR_WRONG_PROTOCOL_FOR_JOB = -11
+  GRI_ERR_JOB_DOES_NOT_EXIST = -12
+  GRI_ERR_MISCONFIGURED_JOB = -13
+  GRI_ERR_HEC_CONFIG_ERROR = -14
+  GRI_ERR_HEC_INIT_ERROR = -15
+  GRI_ERR_HEC_SET_POSE_ERROR = -16
+  GRI_ERR_HEC_CALIBRATE_ERROR = -17
+  GRI_ERR_HEC_INSUFFICIENT_DETECTION = -18
+  GRI_ERR_NO_POSES_FOUND = 1
+  GRI_ERR_NO_RELATED_POSES = 2
+  GRI_ERR_NO_RETURN_SPECIFIED = 3
+  GRI_ERR_JOB_STILL_RUNNING = 4
 
   -- GRI Protocol V2 Job Status Codes (for KAREL)
   JOB_STATUS_UNKNOWN = 0
@@ -104,6 +112,8 @@ CONST
 
   -- General KAREL status
   SUCCESS_STATUS = 0
+  -- Internal sentinel for communication failure during header read
+  ERR_COMM_FAILED = -32000
 
 -- Function to get job status message string from status code
 ROUTINE get_job_status_message(status_code : INTEGER) : STRING
@@ -136,6 +146,8 @@ ROUTINE get_error_message(error_code : INTEGER) : STRING
         RETURN('INTERNAL_ERROR')
       CASE (GRI_ERR_API_NOT_REACHABLE):
         RETURN('API_NOT_REACHABLE')
+      CASE (GRI_ERR_API_RESPONSE_ERROR):
+        RETURN('API_RESPONSE_ERROR')
       CASE (GRI_ERR_PIPELINE_NOT_AVAILABLE):
         RETURN('PIPELINE_NOT_AVAILABLE')
       CASE (GRI_ERR_INVALID_REQUEST_ERROR):
@@ -150,14 +162,14 @@ ROUTINE get_error_message(error_code : INTEGER) : STRING
         RETURN('UNKNOWN_PROTOCOL_VERSION')
       CASE (GRI_ERR_JOB_DOES_NOT_EXIST):
         RETURN('JOB_DOES_NOT_EXIST')
-      CASE (GRI_ERR_JOB_CHANGED):
-        RETURN('JOB_CHANGED')
+      CASE (GRI_ERR_WRONG_PROTOCOL_FOR_JOB):
+        RETURN('WRONG_PROTOCOL_FOR_JOB')
       CASE (GRI_ERR_MISCONFIGURED_JOB):
         RETURN('MISCONFIGURED_JOB')
       CASE (GRI_ERR_NO_POSES_FOUND):
         RETURN('NO_POSES_FOUND')
-      CASE (GRI_ERR_NO_ASSOCIATED_OBJECTS):
-        RETURN('NO_ASSOCIATED_OBJECTS')
+      CASE (GRI_ERR_NO_RELATED_POSES):
+        RETURN('NO_RELATED_POSES')
       CASE (GRI_ERR_NO_RETURN_SPECIFIED):
         RETURN('NO_RETURN_SPECIFIED')
       CASE (GRI_ERR_JOB_STILL_RUNNING):
@@ -172,14 +184,6 @@ ROUTINE get_error_message(error_code : INTEGER) : STRING
         RETURN('HEC_CALIBRATE_ERROR')
       CASE (GRI_ERR_HEC_INSUFFICIENT_DETECTION):
         RETURN('HEC_INSUFFICIENT_DETECTION')
-      CASE (GRI_ERR_NOT_IMPLEMENTED):
-        RETURN('NOT_IMPLEMENTED')
-      CASE (GRI_ERR_API_ERROR):
-        RETURN('API_ERROR')
-      CASE (GRI_ERR_API_RESPONSE_ERROR):
-        RETURN('API_RESPONSE_ERROR')
-      CASE (GRI_ERR_WRONG_PROTOCOL_FOR_RETURN):
-        RETURN('WRONG_PROTOCOL_FOR_RETURN')
       ELSE:
         RETURN('UNKNOWN_ERROR_CODE')
     ENDSELECT
@@ -188,38 +192,43 @@ ROUTINE get_error_message(error_code : INTEGER) : STRING
 -- Common routine to build and send request header
 ROUTINE send_request_header(action : INTEGER; job_id : INTEGER; log_prefix : STRING) : INTEGER
   VAR
-    s_req_hdr_magic     : STRING[1]
+    s_req_hdr_magic     : STRING[4]
     s_req_hdr_proto_ver : STRING[1]
     s_req_hdr_msg_len   : STRING[1]
     s_req_hdr_pose_fmt  : STRING[1]
     s_req_hdr_action    : STRING[1]
-    s_req_hdr_job_id    : STRING[1]
+    s_req_hdr_job_id    : STRING[2]
     request_hdr_str     : STRING[REQ_HEADER_LEN]
     local_status        : INTEGER
+    jid_lo              : INTEGER
+    jid_hi              : INTEGER
   BEGIN
     local_status = SUCCESS_STATUS
     
-    -- Build header
-    s_req_hdr_magic     = CHR(REQ_MAGIC_NUM)
+    -- Build header magic from constants (4-byte 'GRI\0')
+    s_req_hdr_magic     = CHR(REQ_MAGIC_B1) + CHR(REQ_MAGIC_B2) + CHR(REQ_MAGIC_B3) + CHR(REQ_MAGIC_B4)
     s_req_hdr_proto_ver = CHR(REQ_PROTO_VER)
     s_req_hdr_msg_len   = CHR(REQ_MSG_TOTAL_LEN)
-    s_req_hdr_pose_fmt  = CHR(REQ_POSE_FMT_XYZWPR_CUSTOM)
+    s_req_hdr_pose_fmt  = CHR(REQ_POSE_FMT_EULER_ZYX_B_DEG)
     s_req_hdr_action    = CHR(action)
     
-    -- Validate job_id range - fail immediately if invalid
-    IF (job_id < 0) OR (job_id > 255) THEN
-        WRITE TPDISPLAY(log_prefix, 'ERROR: Job ID ', job_id, ' out of range 0-255. Request aborted!', CR)
-        WRITE g_log_file(log_prefix, 'ERROR: Job ID ', job_id, ' out of range 0-255. Request aborted!', CR)
+    -- Validate job_id range - fail immediately if invalid (uint16)
+    IF (job_id < 0) OR (job_id > 65535) THEN
+        WRITE TPDISPLAY(log_prefix, 'ERROR: Job ID ', job_id, ' out of range 0-65535. Request aborted!', CR)
+        WRITE g_log_file(log_prefix, 'ERROR: Job ID ', job_id, ' out of range 0-65535. Request aborted!', CR)
         RETURN(GRI_ERR_INVALID_REQUEST_ERROR)
     ENDIF
-    s_req_hdr_job_id    = CHR(job_id)
+    -- Build job_id as 2 bytes little-endian
+    jid_lo = (job_id MOD 256)
+    jid_hi = ((job_id DIV 256) MOD 256)
+    s_req_hdr_job_id    = CHR(jid_lo) + CHR(jid_hi)
     request_hdr_str = s_req_hdr_magic + s_req_hdr_proto_ver + s_req_hdr_msg_len + s_req_hdr_pose_fmt + s_req_hdr_action
     
     -- Always-on request header summary (file only)
     WRITE g_log_file(log_prefix, 'SENDING', CR)
-    WRITE g_log_file(log_prefix, 'header: magic=', REQ_MAGIC_NUM, ' proto=', REQ_PROTO_VER, ' len=', REQ_MSG_TOTAL_LEN, ' pose_fmt=', REQ_POSE_FMT_XYZWPR_CUSTOM, ' action=', action, ' job_id=', job_id, CR)
+    WRITE g_log_file(log_prefix, 'header: proto=', REQ_PROTO_VER, ' len=', REQ_MSG_TOTAL_LEN, ' pose_fmt=', REQ_POSE_FMT_EULER_ZYX_B_DEG, ' action=', action, ' job_id=', job_id, CR)
 
-    -- Send header
+    -- Send 8-byte header
     WRITE g_file_var(request_hdr_str::REQ_HEADER_LEN)
     local_status = IO_STATUS(g_file_var)
     IF local_status <> SUCCESS_STATUS THEN
@@ -228,8 +237,8 @@ ROUTINE send_request_header(action : INTEGER; job_id : INTEGER; log_prefix : STR
       RETURN(local_status)
     ENDIF
 
-    -- Send job_id separately (1 byte)
-    WRITE g_file_var(s_req_hdr_job_id::1)
+    -- Send job_id separately (2 bytes, little-endian)
+    WRITE g_file_var(s_req_hdr_job_id::2)
     local_status = IO_STATUS(g_file_var)
     IF local_status <> SUCCESS_STATUS THEN
       WRITE TPDISPLAY(log_prefix, '[ERR_SND_JID] St:', local_status, CR)
@@ -245,6 +254,9 @@ ROUTINE send_pose_data(log_prefix : STRING) : INTEGER
   VAR
     local_status : INTEGER
     current_pose : XYZWPR
+    saved_group_uframe : XYZWPR
+    saved_group_utool : XYZWPR
+    identity_pose : XYZWPR
     scaled_x, scaled_y, scaled_z : INTEGER
     scaled_w, scaled_p, scaled_r : INTEGER
     scaled_r4 : INTEGER
@@ -256,13 +268,30 @@ ROUTINE send_pose_data(log_prefix : STRING) : INTEGER
     s_int_byte4 : STRING[1]
     packed_int_str : STRING[KAREL_INT_SIZE]
     dbg_msg : STRING[200]
+    sys_entry : INTEGER
+    sys_status : INTEGER
+    -- Removed: orig_uf_num, orig_ut_num, frames_forced (no frame switching)
   BEGIN
     local_status = SUCCESS_STATUS
+    sys_entry = 0
+    sys_status = 0
+    -- no frame forcing used
     
-    -- Read current robot pose immediately before packing/sending
-    $GROUP[1].$UFRAME = $MNUFRAME[1,0]  -- Set to World Frame (base)
-    $GROUP[1].$UTOOL = $MNUTOOL[1,0]    -- Set to default tool frame (flange)
+    -- Compute base to flange in a KAREL-local frame context without affecting TP
+    -- Use $UFRAME/$UTOOL identity to express CURPOS in world/base and flange
+    saved_group_uframe = $UFRAME
+    saved_group_utool = $UTOOL
+    identity_pose.X = 0
+    identity_pose.Y = 0
+    identity_pose.Z = 0
+    identity_pose.W = 0
+    identity_pose.P = 0
+    identity_pose.R = 0
+    $UFRAME = identity_pose
+    $UTOOL = identity_pose
     current_pose = CURPOS(0, 0)
+    $UFRAME = saved_group_uframe
+    $UTOOL = saved_group_utool
     
     -- Convert real values to scaled int32 values
     scaled_x = ROUND(current_pose.X * POSE_SCALE_FACTOR_REAL)
@@ -375,73 +404,7 @@ ROUTINE send_pose_data(log_prefix : STRING) : INTEGER
       RETURN(local_status)
     ENDIF
     
-    -- Write W as little-endian 4 bytes (two's complement safe)
-    IF scaled_w >= 0 THEN
-      b1_i = (scaled_w MOD 256)
-      b2_i = ((scaled_w DIV 256) MOD 256)
-      b3_i = ((scaled_w DIV 65536) MOD 256)
-      b4_i = ((scaled_w DIV 16777216) MOD 256)
-    ELSE
-      npos = -scaled_w - 1
-      t1 = (npos MOD 256)
-      t2 = ((npos DIV 256) MOD 256)
-      t3 = ((npos DIV 65536) MOD 256)
-      t4 = ((npos DIV 16777216) MOD 256)
-      b1_i = 255 - t1
-      b2_i = 255 - t2
-      b3_i = 255 - t3
-      b4_i = 255 - t4
-    ENDIF
-    s_int_byte1 = CHR(b1_i)
-    s_int_byte2 = CHR(b2_i)
-    s_int_byte3 = CHR(b3_i)
-    s_int_byte4 = CHR(b4_i)
-    packed_int_str = s_int_byte1 + s_int_byte2 + s_int_byte3 + s_int_byte4
-    IF g_debug_bytes_enabled THEN
-      WRITE g_log_file(log_prefix, 'DEBUG [BYTES OUT] PW: ', b1_i, ' ', b2_i, ' ', b3_i, ' ', b4_i, CR)
-    ENDIF
-    WRITE g_file_var(packed_int_str::KAREL_INT_SIZE)
-    local_status = IO_STATUS(g_file_var)
-    IF local_status <> SUCCESS_STATUS THEN
-      WRITE TPDISPLAY(log_prefix, '[ERR_SND_PW] St:', local_status, CR)
-      WRITE g_log_file(log_prefix, '[ERR_SND_PW] St:', local_status, CR)
-      RETURN(local_status)
-    ENDIF
-    
-    -- Write P as little-endian 4 bytes (two's complement safe)
-    IF scaled_p >= 0 THEN
-      b1_i = (scaled_p MOD 256)
-      b2_i = ((scaled_p DIV 256) MOD 256)
-      b3_i = ((scaled_p DIV 65536) MOD 256)
-      b4_i = ((scaled_p DIV 16777216) MOD 256)
-    ELSE
-      npos = -scaled_p - 1
-      t1 = (npos MOD 256)
-      t2 = ((npos DIV 256) MOD 256)
-      t3 = ((npos DIV 65536) MOD 256)
-      t4 = ((npos DIV 16777216) MOD 256)
-      b1_i = 255 - t1
-      b2_i = 255 - t2
-      b3_i = 255 - t3
-      b4_i = 255 - t4
-    ENDIF
-    s_int_byte1 = CHR(b1_i)
-    s_int_byte2 = CHR(b2_i)
-    s_int_byte3 = CHR(b3_i)
-    s_int_byte4 = CHR(b4_i)
-    packed_int_str = s_int_byte1 + s_int_byte2 + s_int_byte3 + s_int_byte4
-    IF g_debug_bytes_enabled THEN
-      WRITE g_log_file(log_prefix, 'DEBUG [BYTES OUT] PP: ', b1_i, ' ', b2_i, ' ', b3_i, ' ', b4_i, CR)
-    ENDIF
-    WRITE g_file_var(packed_int_str::KAREL_INT_SIZE)
-    local_status = IO_STATUS(g_file_var)
-    IF local_status <> SUCCESS_STATUS THEN
-      WRITE TPDISPLAY(log_prefix, '[ERR_SND_PP] St:', local_status, CR)
-      WRITE g_log_file(log_prefix, '[ERR_SND_PP] St:', local_status, CR)
-      RETURN(local_status)
-    ENDIF
-    
-    -- Write R as little-endian 4 bytes (two's complement safe)
+    -- Write R as rot_1 (Euler ZYX backward)
     IF scaled_r >= 0 THEN
       b1_i = (scaled_r MOD 256)
       b2_i = ((scaled_r DIV 256) MOD 256)
@@ -464,15 +427,82 @@ ROUTINE send_pose_data(log_prefix : STRING) : INTEGER
     s_int_byte4 = CHR(b4_i)
     packed_int_str = s_int_byte1 + s_int_byte2 + s_int_byte3 + s_int_byte4
     IF g_debug_bytes_enabled THEN
-      WRITE g_log_file(log_prefix, 'DEBUG [BYTES OUT] PR: ', b1_i, ' ', b2_i, ' ', b3_i, ' ', b4_i, CR)
+      WRITE g_log_file(log_prefix, 'DEBUG [BYTES OUT] PR (rot1): ', b1_i, ' ', b2_i, ' ', b3_i, ' ', b4_i, CR)
     ENDIF
     WRITE g_file_var(packed_int_str::KAREL_INT_SIZE)
     local_status = IO_STATUS(g_file_var)
     IF local_status <> SUCCESS_STATUS THEN
-      WRITE TPDISPLAY(log_prefix, '[ERR_SND_PR] St:', local_status, CR)
-      WRITE g_log_file(log_prefix, '[ERR_SND_PR] St:', local_status, CR)
+      WRITE TPDISPLAY(log_prefix, '[ERR_SND_PR_rot1] St:', local_status, CR)
+      WRITE g_log_file(log_prefix, '[ERR_SND_PR_rot1] St:', local_status, CR)
       RETURN(local_status)
     ENDIF
+    
+    -- Write P as rot_2 (Euler ZYX backward)
+    IF scaled_p >= 0 THEN
+      b1_i = (scaled_p MOD 256)
+      b2_i = ((scaled_p DIV 256) MOD 256)
+      b3_i = ((scaled_p DIV 65536) MOD 256)
+      b4_i = ((scaled_p DIV 16777216) MOD 256)
+    ELSE
+      npos = -scaled_p - 1
+      t1 = (npos MOD 256)
+      t2 = ((npos DIV 256) MOD 256)
+      t3 = ((npos DIV 65536) MOD 256)
+      t4 = ((npos DIV 16777216) MOD 256)
+      b1_i = 255 - t1
+      b2_i = 255 - t2
+      b3_i = 255 - t3
+      b4_i = 255 - t4
+    ENDIF
+    s_int_byte1 = CHR(b1_i)
+    s_int_byte2 = CHR(b2_i)
+    s_int_byte3 = CHR(b3_i)
+    s_int_byte4 = CHR(b4_i)
+    packed_int_str = s_int_byte1 + s_int_byte2 + s_int_byte3 + s_int_byte4
+    IF g_debug_bytes_enabled THEN
+      WRITE g_log_file(log_prefix, 'DEBUG [BYTES OUT] PP (rot2): ', b1_i, ' ', b2_i, ' ', b3_i, ' ', b4_i, CR)
+    ENDIF
+    WRITE g_file_var(packed_int_str::KAREL_INT_SIZE)
+    local_status = IO_STATUS(g_file_var)
+    IF local_status <> SUCCESS_STATUS THEN
+      WRITE TPDISPLAY(log_prefix, '[ERR_SND_PP_rot2] St:', local_status, CR)
+      WRITE g_log_file(log_prefix, '[ERR_SND_PP_rot2] St:', local_status, CR)
+      RETURN(local_status)
+    ENDIF
+    
+    -- Write W as rot_3 (Euler ZYX backward)
+    IF scaled_w >= 0 THEN
+      b1_i = (scaled_w MOD 256)
+      b2_i = ((scaled_w DIV 256) MOD 256)
+      b3_i = ((scaled_w DIV 65536) MOD 256)
+      b4_i = ((scaled_w DIV 16777216) MOD 256)
+    ELSE
+      npos = -scaled_w - 1
+      t1 = (npos MOD 256)
+      t2 = ((npos DIV 256) MOD 256)
+      t3 = ((npos DIV 65536) MOD 256)
+      t4 = ((npos DIV 16777216) MOD 256)
+      b1_i = 255 - t1
+      b2_i = 255 - t2
+      b3_i = 255 - t3
+      b4_i = 255 - t4
+    ENDIF
+    s_int_byte1 = CHR(b1_i)
+    s_int_byte2 = CHR(b2_i)
+    s_int_byte3 = CHR(b3_i)
+    s_int_byte4 = CHR(b4_i)
+    packed_int_str = s_int_byte1 + s_int_byte2 + s_int_byte3 + s_int_byte4
+    IF g_debug_bytes_enabled THEN
+      WRITE g_log_file(log_prefix, 'DEBUG [BYTES OUT] PW (rot3): ', b1_i, ' ', b2_i, ' ', b3_i, ' ', b4_i, CR)
+    ENDIF
+    WRITE g_file_var(packed_int_str::KAREL_INT_SIZE)
+    local_status = IO_STATUS(g_file_var)
+    IF local_status <> SUCCESS_STATUS THEN
+      WRITE TPDISPLAY(log_prefix, '[ERR_SND_PW_rot3] St:', local_status, CR)
+      WRITE g_log_file(log_prefix, '[ERR_SND_PW_rot3] St:', local_status, CR)
+      RETURN(local_status)
+    ENDIF
+    
     
     -- Write R4 as little-endian 4 bytes (two's complement safe)
     IF scaled_r4 >= 0 THEN
@@ -567,96 +597,7 @@ ROUTINE send_data_integers(data_array : ARRAY[*] OF INTEGER; array_size : INTEGE
   END send_data_integers
 
 -- Common routine to read and validate response header
-ROUTINE read_response_header(expected_action : INTEGER; expected_job_id : INTEGER; log_prefix : STRING) : INTEGER
-  VAR
-    response_hdr_str    : STRING[RESP_HEADER_TOTAL_LEN]
-    resp_hdr_magic      : INTEGER
-    resp_hdr_proto_ver  : INTEGER
-    resp_hdr_msg_len    : INTEGER
-    resp_hdr_pose_fmt   : INTEGER
-    resp_hdr_action     : INTEGER
-    resp_hdr_job_id     : INTEGER
-    resp_hdr_err_code   : INTEGER
-    
-    b_resp_hdr_valid    : BOOLEAN
-    b_resp_magic_ok     : BOOLEAN
-    b_resp_proto_ok     : BOOLEAN
-    b_resp_len_ok       : BOOLEAN
-    b_hdr_read_len_ok   : BOOLEAN
-    b_resp_pose_fmt_ok  : BOOLEAN 
-    b_resp_action_ok    : BOOLEAN
-    b_resp_job_id_ok    : BOOLEAN 
-    b_resp_err_code_ok  : BOOLEAN
-    
-    local_status        : INTEGER
-  BEGIN
-    local_status = SUCCESS_STATUS
-    
-    -- Read response header
-    read g_file_var(response_hdr_str::RESP_HEADER_TOTAL_LEN)
-    local_status = IO_STATUS(g_file_var)
-    IF local_status = TIMEOUT_ERR THEN
-      WRITE TPDISPLAY(log_prefix, '[TIMEOUT_RECV_HDR]', CR)
-      WRITE g_log_file(log_prefix, '[TIMEOUT_RECV_HDR]', CR)
-      RETURN(local_status)
-    ENDIF 
-    IF local_status <> SUCCESS_STATUS THEN
-      WRITE TPDISPLAY(log_prefix, '[ERR_RECV_HDR] St:', local_status, CR)
-      WRITE g_log_file(log_prefix, '[ERR_RECV_HDR] St:', local_status, CR)
-      RETURN(local_status)
-    ENDIF
-    
-    -- Check header length
-    b_hdr_read_len_ok = (STR_LEN(response_hdr_str) = RESP_HEADER_TOTAL_LEN)
-    IF NOT b_hdr_read_len_ok THEN
-      WRITE TPDISPLAY(log_prefix, '[ERR_RECV_HDR_LEN] Len:', STR_LEN(response_hdr_str), ' Exp:', RESP_HEADER_TOTAL_LEN, CR)
-      WRITE g_log_file(log_prefix, '[ERR_RECV_HDR_LEN] Len:', STR_LEN(response_hdr_str), ' Exp:', RESP_HEADER_TOTAL_LEN, CR)
-      RETURN(-1) -- Return error code
-    ENDIF
-    
-    -- Parse header fields
-    resp_hdr_magic     = ORD(SUB_STR(response_hdr_str, 1, 1), 1)
-    resp_hdr_proto_ver = ORD(SUB_STR(response_hdr_str, 2, 1), 1)
-    resp_hdr_msg_len   = ORD(SUB_STR(response_hdr_str, 3, 1), 1)
-    resp_hdr_pose_fmt  = ORD(SUB_STR(response_hdr_str, 4, 1), 1)
-    resp_hdr_action    = ORD(SUB_STR(response_hdr_str, 5, 1), 1)
-    resp_hdr_job_id    = ORD(SUB_STR(response_hdr_str, 6, 1), 1)
-    -- Parse 16-bit signed error code (2 bytes, little endian)
-    resp_hdr_err_code  = ORD(SUB_STR(response_hdr_str, 7, 1), 1) + (ORD(SUB_STR(response_hdr_str, 8, 1), 1) * 256)
-    -- Convert to signed 16-bit if needed (handle negative values)
-    IF resp_hdr_err_code > 32767 THEN
-      resp_hdr_err_code = resp_hdr_err_code - 65536
-    ENDIF
-
-    -- Validate header fields
-    b_resp_magic_ok    = (resp_hdr_magic = RESP_MAGIC_NUM)
-    b_resp_proto_ok    = (resp_hdr_proto_ver = RESP_PROTO_VER)
-    b_resp_len_ok      = (resp_hdr_msg_len = RESP_MSG_TOTAL_LEN)
-    b_resp_pose_fmt_ok = (resp_hdr_pose_fmt = REQ_POSE_FMT_XYZWPR_CUSTOM) 
-    b_resp_action_ok   = (resp_hdr_action = expected_action) 
-    b_resp_job_id_ok   = (resp_hdr_job_id = (expected_job_id MOD 256))
-    b_resp_err_code_ok = (resp_hdr_err_code = GRI_ERR_NO_ERROR)
-      
-    b_resp_hdr_valid = b_resp_magic_ok AND b_resp_proto_ok AND b_resp_len_ok AND b_resp_pose_fmt_ok AND b_resp_action_ok AND b_resp_job_id_ok AND b_resp_err_code_ok
-
-    IF NOT b_resp_hdr_valid THEN
-      WRITE TPDISPLAY(log_prefix, '[ERR_RESP_HDR_INVALID]', CR)
-      WRITE g_log_file(log_prefix, '[ERR_RESP_HDR_INVALID]', CR) 
-      WRITE TPDISPLAY('MGC_OK:', b_resp_magic_ok, ' PRT_OK:', b_resp_proto_ok, ' LEN_OK:', b_resp_len_ok, CR)
-      WRITE g_log_file('MGC_OK:', b_resp_magic_ok, ' PRT_OK:', b_resp_proto_ok, ' LEN_OK:', b_resp_len_ok, CR)
-      WRITE TPDISPLAY('FMT_OK:', b_resp_pose_fmt_ok, ' ACT_OK:', b_resp_action_ok, ' JID_OK:', b_resp_job_id_ok, ' ERR_OK:', b_resp_err_code_ok, CR)
-      WRITE g_log_file('FMT_OK:', b_resp_pose_fmt_ok, ' ACT_OK:', b_resp_action_ok, ' JID_OK:', b_resp_job_id_ok, ' ERR_OK:', b_resp_err_code_ok, CR)
-      WRITE TPDISPLAY('Got: MGC=', resp_hdr_magic, '(E:', RESP_MAGIC_NUM, '),PRT=', resp_hdr_proto_ver, '(E:', RESP_PROTO_VER, '),LEN=', resp_hdr_msg_len, '(E:', RESP_MSG_TOTAL_LEN, ')', CR)
-      WRITE g_log_file('Got: MGC=', resp_hdr_magic, '(E:', RESP_MAGIC_NUM, '),PRT=', resp_hdr_proto_ver, '(E:', RESP_PROTO_VER, '),LEN=', resp_hdr_msg_len, '(E:', RESP_MSG_TOTAL_LEN, ')', CR)
-      WRITE TPDISPLAY('FMT=', resp_hdr_pose_fmt, '(E:', REQ_POSE_FMT_XYZWPR_CUSTOM, '),ACT=', resp_hdr_action, '(E:', expected_action, ')', CR)
-      WRITE g_log_file('FMT=', resp_hdr_pose_fmt, '(E:', REQ_POSE_FMT_XYZWPR_CUSTOM, '),ACT=', resp_hdr_action, '(E:', expected_action, ')', CR)
-      WRITE TPDISPLAY('JID=', resp_hdr_job_id, '(E:', (expected_job_id MOD 256), '),ERR=', resp_hdr_err_code, '(E:', GRI_ERR_NO_ERROR, ')', CR)
-      WRITE g_log_file('JID=', resp_hdr_job_id, '(E:', (expected_job_id MOD 256), '),ERR=', resp_hdr_err_code, '(E:', GRI_ERR_NO_ERROR, ')', CR)
-      RETURN(-1) -- Return error code
-    ENDIF
-
-    RETURN(local_status)
-  END read_response_header
+-- (removed legacy read_response_header; superseded by read_response_header_with_error_code)
 
 -- Common routine to read response data integers  
 ROUTINE read_response_data_integers(data_array : ARRAY[*] OF INTEGER; array_size : INTEGER; log_prefix : STRING) : INTEGER
@@ -702,56 +643,17 @@ ROUTINE read_response_data_integers(data_array : ARRAY[*] OF INTEGER; array_size
     RETURN(local_status)
   END read_response_data_integers
 
--- Common routine to read 7 pose int32s and convert to reals with error checking
-ROUTINE read_response_pose_7_reals(pose_reals : ARRAY[*] OF REAL; log_prefix : STRING) : INTEGER
-  VAR
-    i            : INTEGER
-    local_status : INTEGER
-    scaled_int   : INTEGER
-    packed_str   : STRING[KAREL_INT_SIZE]
-    b1           : INTEGER
-    b2           : INTEGER
-    b3           : INTEGER
-    b4           : INTEGER
-    dbg_msg      : STRING[120]
-  BEGIN
-    local_status = SUCCESS_STATUS
-    
-    FOR i = 1 TO 7 DO
-      read g_file_var(packed_str::KAREL_INT_SIZE)
-      local_status = IO_STATUS(g_file_var)
-      IF local_status <> SUCCESS_STATUS THEN
-        WRITE TPDISPLAY(log_prefix, '[ERR_RECV_POSE] Int[', i, '] St:', local_status, CR)
-        WRITE g_log_file(log_prefix, '[ERR_RECV_POSE] Int[', i, '] St:', local_status, CR)
-        RETURN(local_status)
-      ENDIF
-      -- Assemble little-endian signed int32
-      b1 = ORD(SUB_STR(packed_str, 1, 1), 1)
-      b2 = ORD(SUB_STR(packed_str, 2, 1), 1)
-      b3 = ORD(SUB_STR(packed_str, 3, 1), 1)
-      b4 = ORD(SUB_STR(packed_str, 4, 1), 1)
-      IF b4 < 128 THEN
-        scaled_int = b1 + (b2 * 256) + (b3 * 65536) + (b4 * 16777216)
-      ELSE
-        scaled_int = -(((255 - b1) + ((255 - b2) * 256) + ((255 - b3) * 65536) + ((255 - b4) * 16777216)) + 1)
-      ENDIF
-      IF g_debug_bytes_enabled THEN
-        WRITE g_log_file(log_prefix, 'DEBUG [BYTES] pose int: idx=', i, ' ', b1, ' ', b2, ' ', b3, ' ', b4, CR)
-        WRITE g_log_file(log_prefix, 'DEBUG pose int: idx=', i, ' raw=', scaled_int, ' real=', (scaled_int / POSE_SCALE_FACTOR_REAL), CR)
-      ENDIF
-      -- Convert scaled int32 back to real
-      pose_reals[i] = scaled_int / POSE_SCALE_FACTOR_REAL
-    ENDFOR
-    
-    RETURN(local_status)
-  END read_response_pose_7_reals
+-- (removed read_response_pose_7_reals; inlined into read_response_pose_to_xyzwpr)
 
--- Common routine to read response header and return server error code (for HEC functions)
--- Returns: server error code (or negative value for communication errors)
+-- Common routine to read response header and return server error code
+-- Returns: server error code; on communication failure returns ERR_COMM_FAILED
 ROUTINE read_response_header_with_error_code(expected_action : INTEGER; expected_job_id : INTEGER; log_prefix : STRING) : INTEGER
   VAR
     response_hdr_str    : STRING[RESP_HEADER_TOTAL_LEN]
-    resp_hdr_magic      : INTEGER
+    resp_hdr_magic_b1   : INTEGER
+    resp_hdr_magic_b2   : INTEGER
+    resp_hdr_magic_b3   : INTEGER
+    resp_hdr_magic_b4   : INTEGER
     resp_hdr_proto_ver  : INTEGER
     resp_hdr_msg_len    : INTEGER
     resp_hdr_pose_fmt   : INTEGER
@@ -773,13 +675,19 @@ ROUTINE read_response_header_with_error_code(expected_action : INTEGER; expected
     local_status = SUCCESS_STATUS
     server_error_code = GRI_ERR_UNKNOWN_ERROR
     
-    -- Read response header
+    -- Read response header (8-byte header + 4 bytes: job_id uint16 + error_code int16)
     read g_file_var(response_hdr_str::RESP_HEADER_TOTAL_LEN)
     local_status = IO_STATUS(g_file_var)
     IF local_status <> SUCCESS_STATUS THEN
       WRITE TPDISPLAY(log_prefix, '[ERR_RECV_HDR] Status: ', local_status, CR)
       WRITE g_log_file(log_prefix, '[ERR_RECV_HDR] Status: ', local_status, CR)
-      RETURN(-1)  -- Return negative value for communication errors
+      RETURN(ERR_COMM_FAILED)
+    ENDIF
+    -- Validate header read length
+    IF STR_LEN(response_hdr_str) <> RESP_HEADER_TOTAL_LEN THEN
+      WRITE TPDISPLAY(log_prefix, '[ERR_RECV_HDR_LEN] Len:', STR_LEN(response_hdr_str), ' Exp:', RESP_HEADER_TOTAL_LEN, CR)
+      WRITE g_log_file(log_prefix, '[ERR_RECV_HDR_LEN] Len:', STR_LEN(response_hdr_str), ' Exp:', RESP_HEADER_TOTAL_LEN, CR)
+      RETURN(ERR_COMM_FAILED)
     ENDIF
     
     -- RECEIVING block and header bytes (debug)
@@ -793,25 +701,29 @@ ROUTINE read_response_header_with_error_code(expected_action : INTEGER; expected
     ENDIF
     
     -- Parse response header
-    resp_hdr_magic = ORD(SUB_STR(response_hdr_str, 1, 1), 1)
-    resp_hdr_proto_ver = ORD(SUB_STR(response_hdr_str, 2, 1), 1)
-    resp_hdr_msg_len = ORD(SUB_STR(response_hdr_str, 3, 1), 1)
-    resp_hdr_pose_fmt = ORD(SUB_STR(response_hdr_str, 4, 1), 1)
-    resp_hdr_action = ORD(SUB_STR(response_hdr_str, 5, 1), 1)
-    resp_hdr_job_id = ORD(SUB_STR(response_hdr_str, 6, 1), 1)
-    -- Parse 16-bit signed error code (2 bytes, little endian)
-    server_error_code = ORD(SUB_STR(response_hdr_str, 7, 1), 1) + (ORD(SUB_STR(response_hdr_str, 8, 1), 1) * 256)
+    resp_hdr_magic_b1 = ORD(SUB_STR(response_hdr_str, 1, 1), 1)
+    resp_hdr_magic_b2 = ORD(SUB_STR(response_hdr_str, 2, 1), 1)
+    resp_hdr_magic_b3 = ORD(SUB_STR(response_hdr_str, 3, 1), 1)
+    resp_hdr_magic_b4 = ORD(SUB_STR(response_hdr_str, 4, 1), 1)
+    resp_hdr_proto_ver = ORD(SUB_STR(response_hdr_str, 5, 1), 1)
+    resp_hdr_msg_len = ORD(SUB_STR(response_hdr_str, 6, 1), 1)
+    resp_hdr_pose_fmt = ORD(SUB_STR(response_hdr_str, 7, 1), 1)
+    resp_hdr_action = ORD(SUB_STR(response_hdr_str, 8, 1), 1)
+    -- Parse job_id uint16 little-endian (bytes 9..10)
+    resp_hdr_job_id = ORD(SUB_STR(response_hdr_str, 9, 1), 1) + (ORD(SUB_STR(response_hdr_str, 10, 1), 1) * 256)
+    -- Parse 16-bit signed error code (2 bytes, little endian; bytes 11..12)
+    server_error_code = ORD(SUB_STR(response_hdr_str, 11, 1), 1) + (ORD(SUB_STR(response_hdr_str, 12, 1), 1) * 256)
     -- Convert to signed 16-bit if needed (handle negative values)
     IF server_error_code > 32767 THEN
       server_error_code = server_error_code - 65536
     ENDIF
     
     -- Only to file (no TPDISPLAY) to avoid long pendant lines
-    WRITE g_log_file(log_prefix, 'header: magic=', resp_hdr_magic, ' proto=', resp_hdr_proto_ver, ' len=', resp_hdr_msg_len, CR)
+    WRITE g_log_file(log_prefix, 'header: proto=', resp_hdr_proto_ver, ' len=', resp_hdr_msg_len, CR)
     WRITE g_log_file(log_prefix, 'header: pose_fmt=', resp_hdr_pose_fmt, ' action=', resp_hdr_action, ' job_id=', resp_hdr_job_id, ' error_code=', server_error_code, CR)
     
     -- Validate response header (but allow non-zero error codes)
-    b_resp_magic_ok = (resp_hdr_magic = RESP_MAGIC_NUM)
+    b_resp_magic_ok = (resp_hdr_magic_b1 = RESP_MAGIC_B1) AND (resp_hdr_magic_b2 = RESP_MAGIC_B2) AND (resp_hdr_magic_b3 = RESP_MAGIC_B3) AND (resp_hdr_magic_b4 = RESP_MAGIC_B4)
     b_resp_proto_ok = (resp_hdr_proto_ver = RESP_PROTO_VER)
     b_resp_len_ok = (resp_hdr_msg_len = RESP_MSG_TOTAL_LEN)
     b_resp_action_ok = (resp_hdr_action = expected_action)
@@ -819,17 +731,17 @@ ROUTINE read_response_header_with_error_code(expected_action : INTEGER; expected
     IF server_error_code = GRI_ERR_NO_ERROR THEN
       b_resp_job_id_ok = (resp_hdr_job_id = expected_job_id)
     ELSE
-      b_resp_job_id_ok = TRUE  -- Skip job_id validation for error responses
+      b_resp_job_id_ok = TRUE
     ENDIF
+    
     b_resp_hdr_valid = b_resp_magic_ok AND b_resp_proto_ok AND b_resp_len_ok AND b_resp_action_ok AND b_resp_job_id_ok
-    
     IF NOT b_resp_hdr_valid THEN
-      WRITE TPDISPLAY(log_prefix, '[ERR_RESP_HDR_INVALID]', CR)
-      WRITE g_log_file(log_prefix, '[ERR_RESP_HDR_INVALID]', CR)
-      RETURN(-2)  -- Return negative value for header validation errors
+      WRITE TPDISPLAY(log_prefix, '[ERR_HDR_INVALID] M:', b_resp_magic_ok, ' V:', b_resp_proto_ok, ' L:', b_resp_len_ok, ' A:', b_resp_action_ok, ' J:', b_resp_job_id_ok, CR)
+      WRITE g_log_file(log_prefix, '[ERR_HDR_INVALID] M:', b_resp_magic_ok, ' V:', b_resp_proto_ok, ' L:', b_resp_len_ok, ' A:', b_resp_action_ok, ' J:', b_resp_job_id_ok, CR)
+      RETURN(ERR_COMM_FAILED)
     ENDIF
     
-    RETURN(server_error_code)  -- Return actual server error code
+    RETURN(server_error_code)
   END read_response_header_with_error_code
 
 
@@ -888,15 +800,44 @@ ROUTINE consume_response_payload(log_prefix : STRING) : INTEGER
 -- Helper routine to read pose from response and convert to XYZWPR format
 ROUTINE read_response_pose_to_xyzwpr(pose_result : XYZWPR; log_prefix : STRING) : INTEGER
   VAR
-    pose_reals : ARRAY[7] OF REAL
+    i            : INTEGER
     local_status : INTEGER
+    scaled_int   : INTEGER
+    packed_str   : STRING[KAREL_INT_SIZE]
+    b1           : INTEGER
+    b2           : INTEGER
+    b3           : INTEGER
+    b4           : INTEGER
+    pose_reals   : ARRAY[7] OF REAL
   BEGIN
-    local_status = read_response_pose_7_reals(pose_reals, log_prefix)
-    IF local_status <> SUCCESS_STATUS THEN
-      RETURN(local_status)
-    ENDIF
+    local_status = SUCCESS_STATUS
     
-    -- Convert reals to XYZWPR format
+    FOR i = 1 TO 7 DO
+      read g_file_var(packed_str::KAREL_INT_SIZE)
+      local_status = IO_STATUS(g_file_var)
+      IF local_status <> SUCCESS_STATUS THEN
+        WRITE TPDISPLAY(log_prefix, '[ERR_RECV_POSE] Int[', i, '] St:', local_status, CR)
+        WRITE g_log_file(log_prefix, '[ERR_RECV_POSE] Int[', i, '] St:', local_status, CR)
+        RETURN(local_status)
+      ENDIF
+      -- Assemble little-endian signed int32
+      b1 = ORD(SUB_STR(packed_str, 1, 1), 1)
+      b2 = ORD(SUB_STR(packed_str, 2, 1), 1)
+      b3 = ORD(SUB_STR(packed_str, 3, 1), 1)
+      b4 = ORD(SUB_STR(packed_str, 4, 1), 1)
+      IF b4 < 128 THEN
+        scaled_int = b1 + (b2 * 256) + (b3 * 65536) + (b4 * 16777216)
+      ELSE
+        scaled_int = -(((255 - b1) + ((255 - b2) * 256) + ((255 - b3) * 65536) + ((255 - b4) * 16777216)) + 1)
+      ENDIF
+      IF g_debug_bytes_enabled THEN
+        WRITE g_log_file(log_prefix, 'DEBUG [BYTES] pose int: idx=', i, ' ', b1, ' ', b2, ' ', b3, ' ', b4, CR)
+        WRITE g_log_file(log_prefix, 'DEBUG pose int: idx=', i, ' raw=', scaled_int, ' real=', (scaled_int / POSE_SCALE_FACTOR_REAL), CR)
+      ENDIF
+      pose_reals[i] = scaled_int / POSE_SCALE_FACTOR_REAL
+    ENDFOR
+    
+    -- Convert reals to XYZWPR format for EULER_ZYX_B_DEG
     pose_result.X = pose_reals[1]
     pose_result.Y = pose_reals[2]
     pose_result.Z = pose_reals[3]
@@ -942,30 +883,7 @@ ROUTINE send_request_with_auto_pose(action : INTEGER; job_id : INTEGER; log_pref
   END send_request_with_auto_pose
 
 -- Helper routine to log raw response bytes for debugging
-ROUTINE log_raw_response_bytes(log_prefix : STRING) : INTEGER
-  VAR
-    i : INTEGER
-    local_status : INTEGER
-    raw_byte : STRING[1]
-    debug_msg : STRING[200]
-  BEGIN
-    local_status = SUCCESS_STATUS
-    IF g_debug_bytes_enabled THEN
-      debug_msg = 'DEBUG [RAW] Response bytes: '
-      -- Read and log first 20 bytes of response for debugging
-      FOR i = 1 TO 20 DO
-        read g_file_var(raw_byte::1)
-        local_status = IO_STATUS(g_file_var)
-        IF local_status <> SUCCESS_STATUS THEN
-          WRITE g_log_file(log_prefix, '[ERR_DEBUG_RAW] Byte[', i, '] St:', local_status, CR)
-          RETURN(local_status)
-        ENDIF
-        debug_msg = debug_msg + CHR(ORD(raw_byte, 1)) + ' '
-      ENDFOR
-      WRITE g_log_file(log_prefix, debug_msg, CR)
-    ENDIF
-    RETURN(local_status)
-  END log_raw_response_bytes
+-- (removed log_raw_response_bytes; no longer used)
 
 -- Helper routine for full GRI communication with error handling
 ROUTINE gri_communicate_with_pose_result(action : INTEGER; job_id : INTEGER; result_pose : XYZWPR; rem_primary : INTEGER; rem_related : INTEGER; log_prefix : STRING) : INTEGER
@@ -973,6 +891,8 @@ ROUTINE gri_communicate_with_pose_result(action : INTEGER; job_id : INTEGER; res
     local_status : INTEGER
     server_error : INTEGER
     response_data : ARRAY[RESP_NUM_DATA_INTS_RECV] OF INTEGER
+    i_reg : INTEGER
+    comm_failed : BOOLEAN
   BEGIN
     -- Send standard request with auto pose
     local_status = send_request_with_auto_pose(action, job_id, log_prefix)
@@ -982,7 +902,8 @@ ROUTINE gri_communicate_with_pose_result(action : INTEGER; job_id : INTEGER; res
     
     -- Read response with custom header validation for error tolerance
     server_error = read_response_header_with_error_code(action, job_id, log_prefix)
-    IF server_error < 0 THEN
+    IF server_error = ERR_COMM_FAILED THEN
+      -- communication failure, do not touch registers
       RETURN(GRI_ERR_INTERNAL_ERROR)
     ENDIF
     
@@ -992,124 +913,117 @@ ROUTINE gri_communicate_with_pose_result(action : INTEGER; job_id : INTEGER; res
       local_status = read_response_pose_to_xyzwpr(result_pose, log_prefix)
       IF local_status <> SUCCESS_STATUS THEN RETURN(GRI_ERR_INTERNAL_ERROR); ENDIF
       
+      -- Write pose to PR[53]
+      SET_POS_REG(53, result_pose, local_status)
+      
+      -- Read data ints and map to registers R[151]..R[160]
       local_status = read_response_data_integers(response_data, RESP_NUM_DATA_INTS_RECV, log_prefix)
       IF local_status <> SUCCESS_STATUS THEN RETURN(GRI_ERR_INTERNAL_ERROR); ENDIF
       
-      rem_primary = response_data[1]
-      rem_related = response_data[2]
-      WRITE TPDISPLAY('RemPrim=', rem_primary, ', RemRel=', rem_related, ', D3=', response_data[3], ', D4=', response_data[4], ', D5=', response_data[5], CR)
-      WRITE g_log_file('RemPrim=', rem_primary, ', RemRel=', rem_related, ', D3=', response_data[3], ', D4=', response_data[4], ', D5=', response_data[5], CR)
+      -- Set GRI error code and data registers
+      SET_INT_REG(150, GRI_ERR_NO_ERROR, local_status)
+      FOR i_reg = 1 TO RESP_NUM_DATA_INTS_RECV DO
+        SET_INT_REG(150 + i_reg, response_data[i_reg], local_status)
+      ENDFOR
+      
       WRITE TPDISPLAY(log_prefix, 'Success', CR)
       WRITE g_log_file(log_prefix, 'Success', CR)
       
     ELSE
-      -- Error: Consume payload and return server error
+      -- Error: Consume payload and set registers accordingly
       WRITE TPDISPLAY(log_prefix, 'Server Error: ', server_error, ' - ', get_error_message(server_error), CR)
       WRITE g_log_file(log_prefix, 'Server Error: ', server_error, ' - ', get_error_message(server_error), CR)
       local_status = consume_response_payload(log_prefix)
       IF local_status <> SUCCESS_STATUS THEN RETURN(GRI_ERR_INTERNAL_ERROR); ENDIF
+      
+      -- Set GRI error code and clear data registers
+      SET_INT_REG(150, server_error, local_status)
+      FOR i_reg = 1 TO RESP_NUM_DATA_INTS_RECV DO
+        SET_INT_REG(150 + i_reg, 0, local_status)
+      ENDFOR
     ENDIF
     
     RETURN(server_error)
   END gri_communicate_with_pose_result 
 
--- Helper routine for status-returning functions (like get_job_status)
-ROUTINE gri_communicate_for_status(action : INTEGER; job_id : INTEGER; log_prefix : STRING) : INTEGER
+-- Unified helper for non-pose responses (status, confirmation, async-as-sync)
+-- Behavior:
+--  - Sends header + pose + 4 data ints (d1..d4)
+--  - Reads header; separates comm failure from server_error
+--  - Always drains 7 pose ints and 10 data ints to keep alignment
+--  - Maps R[150] = server_error; R[151..160] = data on success else 0
+--  - If map_status is TRUE and success, returns response_data[2] (job status). Otherwise returns server_error.
+ROUTINE gri_communicate_no_pose(action : INTEGER; job_id : INTEGER; log_prefix : STRING; map_status : BOOLEAN; d1 : INTEGER; d2 : INTEGER; d3 : INTEGER; d4 : INTEGER) : INTEGER
   VAR
-    local_status : INTEGER
-    server_error : INTEGER
-    dummy_pose_reals : ARRAY[7] OF REAL
-    response_data : ARRAY[RESP_NUM_DATA_INTS_RECV] OF INTEGER
+    local_status   : INTEGER
+    server_error   : INTEGER
+    comm_failed    : BOOLEAN
+    pose_dummy     : XYZWPR
+    dummy_int      : INTEGER
+    response_data  : ARRAY[RESP_NUM_DATA_INTS_RECV] OF INTEGER
+    i_reg          : INTEGER
+    job_status_val : INTEGER
+    data_to_send   : ARRAY[NUM_DATA_INTS_TO_SEND] OF INTEGER
   BEGIN
-    -- Send standard request with auto pose
-    local_status = send_request_with_auto_pose(action, job_id, log_prefix)
-    IF local_status <> SUCCESS_STATUS THEN
-      RETURN(JOB_STATUS_UNKNOWN)
-    ENDIF
-    
-    -- Read response with custom header validation for error tolerance
-    server_error = read_response_header_with_error_code(action, job_id, log_prefix)
-    IF server_error < 0 THEN
-      RETURN(JOB_STATUS_UNKNOWN)
-    ENDIF
-    
-    -- Handle different server responses
-    IF server_error = GRI_ERR_NO_ERROR THEN
-      -- Success: Read pose payload (not used for status but must be consumed)
-      local_status = read_response_pose_7_reals(dummy_pose_reals, log_prefix)
-      IF local_status <> SUCCESS_STATUS THEN RETURN(JOB_STATUS_UNKNOWN); ENDIF
-      
-      -- Read data integers to get the actual status
-      local_status = read_response_data_integers(response_data, RESP_NUM_DATA_INTS_RECV, log_prefix)
-      IF local_status <> SUCCESS_STATUS THEN RETURN(JOB_STATUS_UNKNOWN); ENDIF
-      
-      WRITE TPDISPLAY(log_prefix, 'Success - Status: ', response_data[1], ' (', get_job_status_message(response_data[1]), ')', CR)
-      WRITE g_log_file(log_prefix, 'Success - Status: ', response_data[1], ' (', get_job_status_message(response_data[1]), ')', CR)
-      
-      RETURN(response_data[1])  -- Return the actual job status
-      
-    ELSE
-      -- Error: Consume payload and return unknown status
-      WRITE TPDISPLAY(log_prefix, 'Server Error: ', server_error, ' - ', get_error_message(server_error), CR)
-      WRITE g_log_file(log_prefix, 'Server Error: ', server_error, ' - ', get_error_message(server_error), CR)
-      local_status = consume_response_payload(log_prefix)
-      IF local_status <> SUCCESS_STATUS THEN RETURN(JOB_STATUS_UNKNOWN); ENDIF
-      
-      RETURN(JOB_STATUS_UNKNOWN)
-    ENDIF
-  END gri_communicate_for_status 
-
--- Helper routine for confirmation functions (like HEC routines)
-ROUTINE gri_communicate_for_confirmation(action : INTEGER; job_id : INTEGER; data_to_send : ARRAY[*] OF INTEGER; log_prefix : STRING) : INTEGER
-  VAR
-    local_status : INTEGER
-    server_error : INTEGER
-    dummy_pose_reals : ARRAY[7] OF REAL
-    dummy_data_ints : ARRAY[RESP_NUM_DATA_INTS_RECV] OF INTEGER
-  BEGIN
-    -- Use modular routine to build and send request header
     local_status = send_request_header(action, job_id, log_prefix)
-    IF local_status <> SUCCESS_STATUS THEN
-      RETURN(GRI_ERR_INTERNAL_ERROR)
-    ENDIF
-    
-    -- Use modular routine to send pose data
+    IF local_status <> SUCCESS_STATUS THEN RETURN(GRI_ERR_INTERNAL_ERROR); ENDIF
+
     local_status = send_pose_data(log_prefix)
-    IF local_status <> SUCCESS_STATUS THEN
-      RETURN(GRI_ERR_INTERNAL_ERROR)
-    ENDIF
-    
-    -- Use modular routine to send data integers
+    IF local_status <> SUCCESS_STATUS THEN RETURN(GRI_ERR_INTERNAL_ERROR); ENDIF
+
+    data_to_send[1] = d1
+    data_to_send[2] = d2
+    data_to_send[3] = d3
+    data_to_send[4] = d4
     local_status = send_data_integers(data_to_send, NUM_DATA_INTS_TO_SEND, log_prefix)
-    IF local_status <> SUCCESS_STATUS THEN
-      RETURN(GRI_ERR_INTERNAL_ERROR)
-    ENDIF
-    
-    -- Use modular routine to read response header and extract server error code
+    IF local_status <> SUCCESS_STATUS THEN RETURN(GRI_ERR_INTERNAL_ERROR); ENDIF
+
     server_error = read_response_header_with_error_code(action, job_id, log_prefix)
-    IF server_error < 0 THEN
+    IF server_error = ERR_COMM_FAILED THEN
       RETURN(GRI_ERR_INTERNAL_ERROR)
     ENDIF
-    
-    -- Consume response payload using modular routines
-    local_status = read_response_pose_7_reals(dummy_pose_reals, log_prefix)
-    IF local_status <> SUCCESS_STATUS THEN
-      RETURN(GRI_ERR_INTERNAL_ERROR)
-    ENDIF
-    
-    -- Use modular routine to read dummy data integers
-    local_status = read_response_data_integers(dummy_data_ints, RESP_NUM_DATA_INTS_RECV, log_prefix)
-    IF local_status <> SUCCESS_STATUS THEN
-      RETURN(GRI_ERR_INTERNAL_ERROR)
-    ENDIF
-    
+
+    -- Always drain pose (not used) silently: read 7 int32s without logging
+    FOR i_reg = 1 TO 7 DO
+      read g_file_var(dummy_int::KAREL_INT_SIZE)
+      local_status = IO_STATUS(g_file_var)
+      IF local_status <> SUCCESS_STATUS THEN RETURN(GRI_ERR_INTERNAL_ERROR); ENDIF
+    ENDFOR
+
+    local_status = read_response_data_integers(response_data, RESP_NUM_DATA_INTS_RECV, log_prefix)
+    IF local_status <> SUCCESS_STATUS THEN RETURN(GRI_ERR_INTERNAL_ERROR); ENDIF
+
+    -- Map registers uniformly
+    SET_INT_REG(150, server_error, local_status)
     IF server_error = GRI_ERR_NO_ERROR THEN
-      WRITE TPDISPLAY(log_prefix, 'Success', CR)
-      WRITE g_log_file(log_prefix, 'Success', CR)
+      FOR i_reg = 1 TO RESP_NUM_DATA_INTS_RECV DO
+        SET_INT_REG(150 + i_reg, response_data[i_reg], local_status)
+      ENDFOR
+      IF map_status THEN
+        job_status_val = response_data[2]
+        WRITE TPDISPLAY(log_prefix, 'Success - Status: ', job_status_val, ' (', get_job_status_message(job_status_val), ')', CR)
+        WRITE g_log_file(log_prefix, 'Success - Status: ', job_status_val, ' (', get_job_status_message(job_status_val), ')', CR)
+        RETURN(job_status_val)
+      ELSE
+        WRITE TPDISPLAY(log_prefix, 'Success', CR)
+        WRITE g_log_file(log_prefix, 'Success', CR)
+        RETURN(server_error)
+      ENDIF
     ELSE
+      FOR i_reg = 1 TO RESP_NUM_DATA_INTS_RECV DO
+        SET_INT_REG(150 + i_reg, 0, local_status)
+      ENDFOR
       WRITE TPDISPLAY(log_prefix, 'ERROR ', server_error, ' - ', get_error_message(server_error), CR)
       WRITE g_log_file(log_prefix, 'ERROR ', server_error, ' - ', get_error_message(server_error), CR)
+      IF map_status THEN
+        RETURN(JOB_STATUS_UNKNOWN)
+      ELSE
+        RETURN(server_error)
+      ENDIF
     ENDIF
-    
-    RETURN(server_error)
-  END gri_communicate_for_confirmation 
+  END gri_communicate_no_pose
+
+-- Removed: gri_communicate_for_status (use gri_communicate_no_pose with map_status=TRUE)
+
+-- Helper routine for confirmation functions (like HEC routines)
+-- Removed: gri_communicate_for_confirmation (use gri_communicate_no_pose with map_status=FALSE)

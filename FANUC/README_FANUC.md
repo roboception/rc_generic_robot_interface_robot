@@ -6,6 +6,8 @@ This document describes the FANUC client implementation for Roboception's Generi
 
 The FANUC GRI client provides a straightforward way to integrate Roboception vision capabilities into your FANUC robot programs. Instead of complex register manipulation, you can access vision functions through simple CALL statements and status checks.
 
+**This integration uses the GRI protocol version defined by Roboception firmware 25.10 and later**
+
 ### Key Features
 
 - **Vision Job Execution**: Trigger synchronous and asynchronous vision jobs
@@ -40,6 +42,7 @@ Load the following files onto your FANUC robot controller:
 
 **TP Programs** (load .ls files):
 - `GRI_OPEN_COMMUNICATION.LS` - System initialization
+- `GRI_SETFRAMES.LS` - Utility to standardize frames (sets `UF:0` world and `UT:0` flange)
 - `GRI_TRIGGER_JOB_SYNC.LS` - Execute vision job (blocking)
 - `GRI_TRIGGER_JOB_ASYNC.LS` - Execute vision job (non-blocking)
 - `GRI_GET_JOB_STATUS.LS` - Check async job status
@@ -100,7 +103,7 @@ Optional example programs (load .ls files):
 - `R[143]` `gri param 1`: slot id (HEC_SET_POSE)
 - `R[144]` `gri param 2`: reserved
 
-**Status Registers (KAREL → TP) - New uniform mapping:**
+**Status Registers (KAREL → TP) - Uniform mapping:**
 - `R[149]` `gri comm status`: handshake; 0 ready, -1 stopped
 - `R[150]` `gri error code`: signed GRI status (<0 error, 0 ok, >0 warning)
 - `R[151]` `module return`: `data_1` (module/vendor code; can be <0/0/>0)
@@ -115,19 +118,32 @@ Optional example programs (load .ls files):
 - Notes on `R[150]/R[151]`
   - Pose-returning calls (`GRI_TRIGGER_JOB_SYNC`, `GRI_GET_NEXT_GRASP`, `GRI_GET_RELATED_GRASP`):
     - On success: `R[150] = 0`; pose in `PR[53]`; counts in `R[152]/R[153]`
-    - No poses: `R[150] = 1`
-    - Errors: `R[150] < 0` (e.g., `-4` API_RESPONSE_ERROR; raw cause may be in `R[151]`)
-  - Confirmation calls (`GRI_TRIGGER_JOB_ASYNC`, `GRI_HEC_*`): `R[150] = 0` on success; otherwise `<0` error, with detail possibly in `R[151]`
+    - No poses: `R[150] = 1` (NO_POSES_FOUND)
+    - Errors: `R[150] < 0` (e.g., `-4` API_RESPONSE_ERROR; raw in `R[151]`)
+  - Confirmation calls (`GRI_TRIGGER_JOB_ASYNC`, `GRI_HEC_*`): `R[150] = 0` on success; on failure `R[150] < 0` with module/vendor detail in `R[151]`
   - Status call (`GRI_GET_JOB_STATUS`): `R[150] = 0` on success; `R[152] = 1|2|3|4` → INACTIVE|RUNNING|DONE|FAILED
 
 
+
+### Frame Convention
+
+- KAREL always exchanges poses on the wire as world/base → flange (mm/deg).
+- All LS examples standardize frames at program start by calling:
+  - `CALL GRI_SETFRAMES` (sets `UF:0` world and `UT:0` flange)
+- Tool 0 must be the identity (flange). If Tool 0 was modified, correct it or transform poses accordingly.
+
+Changing the convention (advanced):
+- If you must use a different UF/UT, update `FANUC/TP/GRI_SETFRAMES.LS` accordingly, or manage frames yourself and remove the helper call from your program.
+- Alternatively, keep world→flange in `PR[53]` and transform it to your chosen UF before moving.
 
 ### Simple Vision-Guided Picking
 
 ```fanuc
 /PROG VISION_PICK_EXAMPLE
 /MN
-  ! Start vision system
+  ! Standardize frames: UF:0 (world), UT:0 (flange)
+  CALL GRI_SETFRAMES ;
+  ! Start GRI communication
   CALL GRI_OPEN_COMMUNICATION ;
   
   ! Execute vision job
@@ -139,7 +155,9 @@ Optional example programs (load .ls files):
   JMP LBL[cleanup] ;
   
   LBL[pick_object] ;
-  ! Move to detected pose (in PR[53])
+  ! Move to detected pose (in PR[53]) using world/base and flange
+  UFRAME_NUM=0 ;
+  UTOOL_NUM=0 ;
   L PR[53:gri pose] 200mm/sec FINE ;
   ! Execute gripper close
   DO[1:Gripper]=ON ;
@@ -154,7 +172,6 @@ Optional example programs (load .ls files):
 ```fanuc
 /PROG PROCESS_MULTIPLE_OBJECTS
 /MN
-  CALL GRI_OPEN_COMMUNICATION ;
   
   ! Process objects until none remain
   LBL[next_object] ;
@@ -183,7 +200,7 @@ Optional example programs (load .ls files):
 ### Asynchronous Processing
 
 ```fanuc
-! Start vision job in background
+! Start background job
 CALL GRI_TRIGGER_JOB_ASYNC(1) ;
 IF R[150:gri error code]<>0, JMP LBL[async_failed] ;
 
@@ -193,13 +210,15 @@ CALL OTHER_ROBOT_OPERATIONS ;
 ! Poll job status until done
 LBL[poll] ;
 CALL GRI_GET_JOB_STATUS(1) ;
-IF R[152:gri data 1]=2, JMP LBL[poll] ;      -- RUNNING
-IF R[152:gri data 1]<>3, JMP LBL[async_failed] ; -- not DONE
+IF R[152:data 2]=2, JMP LBL[poll] ;      -- RUNNING
+IF R[152:data 2]<>3, JMP LBL[async_failed] ; -- not DONE
 
 ! Job is DONE → fetch results
 LBL[next] ;
 CALL GRI_GET_NEXT_GRASP(1) ;
 IF R[150:gri error code]<>0, JMP LBL[finished] ;
+UFRAME_NUM=0 ;
+UTOOL_NUM=0 ;
 L PR[53:gri pose] 150mm/sec FINE ;
 IF R[152:gri data 1]>0, JMP LBL[next] ;
 LBL[finished] ;
@@ -212,7 +231,13 @@ LBL[after] ;
 
 ## Status Codes
 
-R[150] carries signed status: `<0` error, `0` ok, `>0` warning. For pose-returning calls, success (`0`) means a pose is available in `PR[53]`. For job status (`GRI_GET_JOB_STATUS`), `R[150]=0` on success and the job state is in `R[152]` (1..4).
+`R[150]` semantics are uniform across functions:
+
+- `R[150] = 0`: success
+- `R[150] < 0`: error (see `R[151]` for module/vendor detail)
+- `R[150] > 0`: warning/non-fatal (e.g., `1` = NO_POSES_FOUND)
+
+For job status (`GRI_GET_JOB_STATUS`): `R[150] = 0` on success and `R[152] ∈ {1,2,3,4}` → INACTIVE|RUNNING|DONE|FAILED.
 
 ## Hand-Eye Calibration
 
@@ -296,7 +321,7 @@ CALL GRI_QUIT ;
 
 ### No Objects Detected
 
-- If the pose-returning call does not find a pose, `R[150]` will be `23` and `R[151] = 13` (no poses found). Check scene and job configuration.
+- If the pose-returning call does not find a pose, `R[150]` will be `1` (NO_POSES_FOUND). Check scene and job configuration.
 - Check scene lighting and part visibility
 - Verify vision job configuration on vision system
 - Confirm camera positioning and focus
@@ -309,12 +334,6 @@ The FANUC GRI client uses a layered architecture:
 - **TP Programs**: Simple interface functions callable from user programs
 - **Background Module**: Compiled KAREL `.pc` (`gri_comm_background.pc`) handling socket/protocol and register bridging
 - **TCP Socket**: Binary protocol communication with vision system
-
-### Pose Frame Behavior
-
-- The background module reads the current robot pose for protocol exchange as base (UF[0]) to flange (UT[0]).
-- Implementation detail: it temporarily saves and sets `$MNUFRAMENUM[1]`/`$MNUTOOLNUM[1]` to `0` only for the `CURPOS(0,0)` call, then restores the previous values immediately. This guarantees a deterministic world→flange pose independent of the active user/tool frames.
-- Future versions may replace this with a math-based conversion that avoids any temporary frame changes.
 
 ## Deployment Checklist
 
@@ -353,14 +372,25 @@ Integrate GRI error handling with your existing error management:
 
 ```fanuc
 CALL GRI_TRIGGER_JOB_SYNC(1) ;
-SELECT R[150:gri error code] OF
-  CASE(20):
-    CALL PROCESS_OBJECT ;
-  CASE(23):
-    CALL HANDLE_VISION_ERROR ;
-ENDSELECT ;
+IF R[150:gri error code]=0, CALL PROCESS_OBJECT ;
+IF R[150:gri error code]<0, CALL HANDLE_VISION_ERROR ;
+IF R[150:gri error code]>0, CALL HANDLE_NO_POSE_OR_WARNING ;
 ```
 
-Note: In this implementation, a "no object" situation is signaled as `R[150]=23` with `R[151]=13` (no poses found). Consider branching on `R[151]` to distinguish causes of errors if needed.
+Note: A "no object" situation is signaled as `R[150]=1` (NO_POSES_FOUND). Consider branching on `R[151]` for module/vendor specific details when needed.
 
 The system provides consistent, reliable communication with Roboception vision systems while maintaining the familiar FANUC programming environment.
+
+## Protocol Notes (Fixed by Server)
+
+- Protocol: Version 1 (V1)
+- Header: 8 bytes (ASCII "GRI\0", version, length, pose_format, action)
+- Lengths: request 54 bytes, response 80 bytes
+- Job ID: uint16 (LE); Error code: int16 with sign semantics
+- Pose format: EULER_ZYX_B_DEG (26) fixed for FANUC
+  - rot_1 = R (roll/X), rot_2 = P (pitch/Y), rot_3 = W (yaw/Z)
+  - Mapped to XYZWPR in `PR[53]` as R→R, P→P, W→W
+- Scaling: All pose components are int32 scaled by 1e6
+- Job status: returned in `data_2` (mapped to `R[152]`)
+
+See `karel/gri_common_const.kl` for the exact packing/unpacking.

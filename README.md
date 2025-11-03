@@ -53,334 +53,87 @@ Developers can extend support for new robot platforms by:
 ## Protocol System
 
 ### Architecture Overview
-The protocol system uses a hierarchical design with extensible base classes:
+The Generic Robot Interface uses a sophisticated binary protocol designed for industrial robot environments. 
 
-1. **Base Protocol Layer**
-   - Defines core abstractions and common functionality
-   - Provides base message structures and constants
-   - Implements protocol versioning support
-   - Handles basic message validation
+**Message Structure**
+- All messages use an 8-byte header containing magic number, protocol version, message length, pose format, and action
+- Request messages are 54 bytes total, response messages are 80 bytes total
+- All multi-byte integers are transmitted in little-endian byte order
+- Pose data uses 32-bit signed integers scaled by 1,000,000 for precision
 
-2. **Protocol Version Implementation**
-   - Extends base classes for specific protocol versions
-   - Adds version-specific actions and error codes
-   - Implements concrete message handling
-   - Registered via ProtocolRegistry for dynamic dispatch
+**Pose Formats**
+The protocol supports multiple pose representation formats to accommodate different robot platforms:
+- Quaternions (WXYZ and XYZW order)
+- Euler angles in various sequences and units
+- Axis-angle representations
+- Each robot integration uses a fixed format defined by the server
 
-### Base Protocol Components
+**Error Handling**
+The protocol uses signed 16-bit error codes with semantic meaning:
+- Negative values (< 0) indicate errors
+- Zero (0) indicates success
+- Positive values (> 0) indicate warnings
 
-##### Protocol Header (5 bytes)
-| Field            | Type | Size | Description                    |
-|------------------|------|------|--------------------------------|
-| magic_number     | int8 | 1    | Protocol identifier           |
-| protocol_version | int8 | 1    | Protocol version number       |
-| message_length   | int8 | 1    | Total message length in bytes |
-| pose_format      | int8 | 1    | Format of pose data           |
-| action           | int8 | 1    | Command to execute            |
+**Actions**
+The protocol supports comprehensive robot-vision interaction:
+- Synchronous and asynchronous job execution
+- Status monitoring and result retrieval
+- Hand-eye calibration workflows
+- Related pose handling for complex object relationships
 
-#### Base Constants
+### Detailed Protocol Documentation
 
-##### Base Pose Formats
-| Name             | Value | Description                      |
-|------------------|-------|----------------------------------|
-| UNKNOWN          | 0     | Invalid/unknown format           |
-| M_QUATERNION     | 1     | Meters, quaternion rotation      |
-| MM_QUATERNION    | 2     | Millimeters, quaternion rotation |
-| M_EULER_DEGREE   | 3     | Meters, Euler angles (degrees)   |
-| M_EULER_RADIANS  | 4     | Meters, Euler angles (radians)   |
-| MM_EULER_DEGREE  | 5     | MM, Euler angles (degrees)       |
-| MM_EULER_RADIANS | 6     | MM, Euler angles (radians)       |
-| MM_ABC_KUKA      | 7     | MM, KUKA ABC rotation            |
-| M_AXIS_ANGLE     | 8     | Meters, axis-angle rotation      |
-| MM_AXIS_ANGLE    | 9     | MM, axis-angle rotation          |
-| MM_WPR_FANUC     | 10    | XYZ(mm) WPR(deg) rotation        |
+For complete technical specifications, field layouts, and implementation details, refer to the official documentation:
 
-##### Base Error Codes
-| Name                    | Value | Description                     |
-|------------------------|-------|---------------------------------|
-| NO_ERROR               | 0     | Operation successful            |
-| UNKNOWN_ERROR          | 1     | Unspecified error              |
-| INTERNAL_ERROR         | 2     | Internal system error           |
-| API_NOT_REACHABLE      | 3     | Cannot reach vision API         |
-| PIPELINE_NOT_AVAILABLE | 4     | Processing pipeline unavailable |
-| INVALID_REQUEST_ERROR  | 5     | Malformed request              |
-| INVALID_REQUEST_LENGTH | 6     | Wrong message length           |
-| INVALID_ACTION         | 7     | Unsupported action             |
-| PROCESSING_TIMEOUT     | 8     | Operation timed out            |
-| UNKNOWN_PROTOCOL_VERSION| 9     | Protocol version not supported |
-| NOT_IMPLEMENTED        | 100   | Feature not implemented        |
-| API_ERROR              | 101   | Vision API error               |
-| API_RESPONSE_ERROR     | 102   | Invalid API response           |
+- **Main GRI Documentation**: https://doc.rc-cube.com/latest/en/gri.html
+- **Protocol Specification**: https://doc.rc-cube.com/latest/en/gri.html#gri-binary-protocol-specification
+- **Message Header Details**: https://doc.rc-cube.com/latest/en/gri.html#message-header-8-bytes
+- **Pose Format Reference**: https://doc.rc-cube.com/latest/en/gri.html#pose-formats
+- **Action Definitions**: https://doc.rc-cube.com/latest/en/gri.html#actions
+- **Job Status Codes**: https://doc.rc-cube.com/latest/en/gri.html#job-status
+- **Message Body Layouts**: https://doc.rc-cube.com/latest/en/gri.html#body-definitions
+- **Error Code Semantics**: https://doc.rc-cube.com/latest/en/gri.html#error-codes-and-semantics
+- **Integration Guide**: https://doc.rc-cube.com/latest/en/gri.html#integration-with-a-robot
 
-##### Base Actions
-| Name    | Value | Description              |
-|---------|-------|--------------------------|
-| UNKNOWN | 0     | Invalid/unknown action   |
-| STATUS  | 1     | Basic protocol status    |
+### Robot-Specific Implementation Notes
 
-### Protocol Version 2
+**ABB RAPID Integration**
+- Uses QUAT_WXYZ pose format (format code 1)
+- All pose components packed as [w, x, y, z] quaternion
+- See `ABB_RAPID/README_ABB.md` for detailed usage instructions
 
-#### Protocol Constants
-- VERSION: 2
-- REQUEST_MAGIC: 2
-- RESPONSE_MAGIC: 2
-- REQUEST_LENGTH: 50 bytes
-- RESPONSE_LENGTH: 55 bytes
+**FANUC KAREL/TP Integration**
+- Uses EULER_ZYX_B_DEG pose format (format code 26)
+- Rotation components packed as [R, P, W] in degrees
+- Job status retrieved from data_2 field
+- See `FANUC/README_FANUC.md` for detailed usage instructions
 
+### Implementation Guidelines
 
-#### Protocol V2 Job Status
-| Name     | Value | Description              |
-|----------|-------|--------------------------|
-| INACTIVE | 1     | Job not running or completed |
-| RUNNING  | 2     | Job in progress              |
-| DONE     | 3     | Job completed with results available |
-| FAILED   | 4     | Job did not complete         |
+When implementing robot-side communication:
 
-#### Protocol V2 Error Codes
-| Name                      | Value | Description                      |
-|--------------------------|-------|----------------------------------|
-| JOB_DOES_NOT_EXIST       | 10    | Invalid job ID                   |
-| JOB_CHANGED              | 11    | Job configuration modified       |
-| MISCONFIGURED_JOB        | 12    | Invalid job configuration        |
-| NO_POSES_FOUND           | 13    | No results available             |
-| NO_ASSOCIATED_OBJECTS    | 14    | No related data found            |
-| NO_RETURN_SPECIFIED      | 15    | Job configured with no return type |
-| JOB_STILL_RUNNING        | 16    | Async job not complete           |
-| HEC_CONFIG_ERROR         | 17    | Calibration configuration error  |
-| HEC_INIT_ERROR          | 18    | Calibration init failed          |
-| HEC_SET_POSE_ERROR      | 19    | Invalid calibration pose         |
-| HEC_CALIBRATE_ERROR     | 20    | Calibration computation failed   |
-| HEC_INSUFFICIENT_DETECTION| 21    | Not enough calibration data     |
+1. **TCP Socket Communication**
+   - Connect to port 7100 (default GRI port)
+   - Use binary protocol with fixed message sizes
+   - Implement proper timeout and error handling
 
-#### Protocol V2 Actions
-| Name              | Value | Description                        |
-|-------------------|-------|------------------------------------|
-| STATUS            | 1     | Get status of the GRI server      |
-| TRIGGER_JOB_SYNC  | 2     | Execute job synchronously          |
-| TRIGGER_JOB_ASYNC | 3     | Start job asynchronously          |
-| GET_JOB_STATUS    | 4     | Check async job status            |
-| GET_NEXT_POSE     | 5     | Get next available result         |
-| GET_RELATED_POSE  | 6     | Get associated pose data          |
-| HEC_INIT          | 7     | Initialize hand-eye calibration   |
-| HEC_SET_POSE      | 8     | Set calibration pose             |
-| HEC_CALIBRATE     | 9     | Execute calibration              |
+2. **Message Construction**
+   - Build 8-byte header with correct magic number and version
+   - Pack pose data using the robot's assigned format
+   - Scale all pose components by 1,000,000 before transmission
+   - Use little-endian byte order for all multi-byte values
 
-##### Action Details
-**Trigger Job Sync (Action 2)**
-- Executes a job synchronously and waits for completion.
-- Sends the robot pose to the vision module.
-- Processes detection and returns the first result immediately.
-- Stores additional results for later retrieval.
-- Returns an error if no results are found.
+3. **Response Processing**
+   - Validate message length and header consistency
+   - Check error codes using signed semantics
+   - Convert scaled pose data back to floating-point values
+   - Handle both errors and warnings appropriately
 
-**Trigger Job Async (Action 3)**
-- Starts job execution without waiting for completion.
-- Immediately returns an acknowledgment.
-- The job continues processing in the background.
-- The client must poll the status using `GET_JOB_STATUS`.
-- Results are retrieved via `GET_NEXT_POSE` when the job is done.
-
-**Get Job Status (Action 4)**
-- Checks the current state of an asynchronous job.
-- Returns job status (`INACTIVE`, `RUNNING`, `DONE`).
-- Indicates if an error occurred during processing.
-- Used to monitor the completion of asynchronous jobs.
-
-**Get Next Pose (Action 5)**
-- Retrieves the next available result.
-- Returns the next grasp/pose from the result queue.
-- Indicates the number of remaining results.
-- Returns an error if no more results are available.
-- Automatically resets the job when all results are retrieved.
-
-**Get Related Pose (Action 6)**
-- Retrieves the next associated object pose for the current primary object.
-- Returns the next associated pose or an error if none are available.
-- Used to handle 1:many relationships in pose data.
-
-**HEC_INIT (Action 7)**
-- Initializes the hand-eye calibration for a specified pipeline.
-- Validates the configuration, including camera mounting and grid dimensions.
-- Resets any existing calibration settings.
-- Sets grid dimensions for the calibration process.
-- Returns success if initialization is successful, otherwise returns an error.
-
-**HEC_SET_POSE (Action 8)**
-- Sets a calibration pose for the hand-eye calibration process.
-- Requires a valid slot number to be specified in the request.
-- Converts the request data into a pose and sends it to the calibration service.
-- Returns success if the pose is set correctly, otherwise returns an error.
-
-**HEC_CALIBRATE (Action 9)**
-- Executes the calibration process and saves the results.
-- Performs the calibration using the configured settings.
-- Saves the calibration data if the process is successful.
-- Returns success if calibration and saving are successful, otherwise returns an error.
-
-
-#### Message Structures
-##### Request Message (50 bytes)
-| Field         | Type  | Size | Description                      |
-|---------------|-------|------|----------------------------------|
-| header        | struct| 5    | Protocol header                  |
-| job_id        | int8  | 1    | Target job number               |
-| pos_x         | float | 4    | Position X                      |
-| pos_y         | float | 4    | Position Y                      |
-| pos_z         | float | 4    | Position Z                      |
-| rot_1         | float | 4    | Rotation component 1            |
-| rot_2         | float | 4    | Rotation component 2            |
-| rot_3         | float | 4    | Rotation component 3            |
-| rot_4         | float | 4    | Rotation component 4            |
-| data_1        | int32 | 4    | Additional parameter 1          |
-| data_2        | int32 | 4    | Additional parameter 2          |
-| data_3        | int32 | 4    | Additional parameter 3          |
-| data_4        | int32 | 4    | Additional parameter 4          |
-
-##### Response Message (55 bytes)
-| Field         | Type  | Size | Description                      |
-|---------------|-------|------|----------------------------------|
-| header        | struct| 5    | Protocol header                  |
-| job_id        | int8  | 1    | Processed job number            |
-| error_code    | int8  | 1    | Result status                   |
-| pos_x         | float | 4    | Position X                      |
-| pos_y         | float | 4    | Position Y                      |
-| pos_z         | float | 4    | Position Z                      |
-| rot_1         | float | 4    | Rotation component 1            |
-| rot_2         | float | 4    | Rotation component 2            |
-| rot_3         | float | 4    | Rotation component 3            |
-| rot_4         | float | 4    | Rotation component 4            |
-| data_1        | int32 | 4    | Additional result 1             |
-| data_2        | int32 | 4    | Additional result 2             |
-| data_3        | int32 | 4    | Additional result 3             |
-| data_4        | int32 | 4    | Additional result 4             |
-| data_5        | int32 | 4    | Additional result 5             |
-
-
-## Implementing Robot-Side Communication
-
-### Technical Requirements
-1. TCP Socket Communication
-   - Client implementation required
-   - Connect to socket server port (10000 by default)
-   - Binary protocol with fixed message sizes
-   - Little-endian byte order for all values
-
-2. Message Format Details
-   - Request messages: Fixed 50 bytes
-   - Response messages: Fixed 55 bytes
-   - All floating-point values: 32-bit IEEE 754
-   - All integer values: Signed, little-endian
-   - All position values in meters or millimeters (configurable)
-   - All rotation values depend on selected format (quaternion, Euler, axis-angle)
-
-3. Basic Communication Flow
-   ```
-   Robot                    Interface
-     |                         |
-     |------- Request -------->|
-     |                         |
-     |<------ Response --------|
-   ```
-
-4. Implementation Steps
-   a. Create TCP socket connection
-   b. Compose request message:
-      - Set protocol header (5 bytes)
-      - Set job ID (1 byte)
-      - Pack position (12 bytes, 3x float32)
-      - Pack rotation (16 bytes, 4x float32)
-      - Pack additional data (16 bytes, 4x int32)
-   c. Send request (50 bytes total)
-   d. Receive response (55 bytes total)
-   e. Parse response:
-      - Protocol header (5 bytes)
-      - Job ID (1 byte)
-      - Error code (1 byte)
-      - Position (12 bytes, 3x float32)
-      - Rotation (16 bytes, 4x float32)
-      - Additional data (20 bytes, 5x int32)
-
-### Example Pseudo-Code
-```python
-# Protocol Header structure (5 bytes)
-struct Header {
-    int8    magic_number;     # Protocol identifier (2 for requests, 3 for responses)
-    int8    protocol_version; # Protocol version (currently 2)
-    int8    message_length;   # Total message length (50 for requests, 55 for responses)
-    int8    pose_format;      # Format of pose data (see Base Pose Formats table)
-    int8    action;          # Command to execute (see Protocol V2 Actions table)
-}
-
-# Complete Request Message structure (50 bytes)
-struct Request {
-    # Header (5 bytes)
-    Header   header;      # Protocol header with:
-                         #   magic_number = 2 (request)
-                         #   protocol_version = 2
-                         #   message_length = 50
-                         #   pose_format = <selected format>
-                         #   action = <command to execute>
-    
-    # Payload (45 bytes)
-    int8      job_id;      # Job identifier
-    float32   pos_x;       # Position X
-    float32   pos_y;       # Position Y
-    float32   pos_z;       # Position Z
-    float32   rot_1;       # Rotation component 1
-    float32   rot_2;       # Rotation component 2
-    float32   rot_3;       # Rotation component 3
-    float32   rot_4;       # Rotation component 4
-    int32     data_1;      # Additional parameter 1
-    int32     data_2;      # Additional parameter 2
-    int32     data_3;      # Additional parameter 3
-    int32     data_4;      # Additional parameter 4
-}
-
-# Complete Response Message structure (55 bytes)
-struct Response {
-    # Header (5 bytes)
-    Header   header;      # Protocol header with:
-                         #   magic_number = 3 (response)
-                         #   protocol_version = 2
-                         #   message_length = 55
-                         #   pose_format = <matches request>
-                         #   action = <matches request>
-    
-    # Payload (50 bytes)
-    int8      job_id;      # Job identifier
-    int8      error_code;  # Result status
-    float32   pos_x;       # Position X
-    float32   pos_y;       # Position Y
-    float32   pos_z;       # Position Z
-    float32   rot_1;       # Rotation component 1
-    float32   rot_2;       # Rotation component 2
-    float32   rot_3;       # Rotation component 3
-    float32   rot_4;       # Rotation component 4
-    int32     data_1;      # Additional result 1
-    int32     data_2;      # Additional result 2
-    int32     data_3;      # Additional result 3
-    int32     data_4;      # Additional result 4
-    int32     data_5;      # Additional result 5
-}
-```
-
-### Common Implementation Pitfalls
-1. Byte Order
-   - All multi-byte values must be little-endian
-   - Use appropriate conversion functions for your platform
-
-2. Data Types
-   - float32: IEEE 754 single-precision floating-point
-   - int8: Signed 8-bit integer
-   - int32: Signed 32-bit integer
-
-3. Message Validation
-   - Always verify received message length
-   - Check error codes in responses
+4. **Best Practices**
+   - Implement connection retry logic
+   - Use appropriate timeouts for operations
    - Validate pose format matches expectations
+   - Test with various job types and scenarios
 
-4. Error Handling
-   - Implement timeout handling
-   - Handle connection errors gracefully
-   - Process protocol error codes appropriately
+For new robot platform integrations, study the existing ABB and FANUC implementations as reference examples, and always validate your implementation against the official protocol documentation.
 
