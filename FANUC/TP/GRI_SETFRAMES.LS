@@ -1,0 +1,28 @@
+/PROG  GRI_SETFRAMES      Macro
+/ATTR
+OWNER		= MNEDITOR;
+COMMENT		= "Set UF:0 and UT:0 for GRI moves";
+PROG_SIZE	= 400;
+CREATE		= DATE 25-09-18  TIME 00:00:00;
+MODIFIED	= DATE 25-09-18  TIME 00:00:00;
+FILE_NAME	= ;
+VERSION		= 0;
+LINE_COUNT	= 3;
+MEMORY_SIZE	= 800;
+PROTECT		= READ_WRITE;
+TCD:  STACK_SIZE	= 0,
+      TASK_PRIORITY	= 50,
+      TIME_SLICE	= 0,
+      BUSY_LAMP_OFF	= 0,
+      ABORT_REQUEST	= 0,
+      PAUSE_REQUEST	= 0;
+DEFAULT_GROUP	= 1,*,*,*,*;
+CONTROL_CODE	= 00000000 00000000;
+/MN
+   1:  ! Use world/base (UF:0) and flange (UT:0) for GRI poses ;
+   2:  UFRAME_NUM=0 ;
+   3:  UTOOL_NUM=0 ;
+/POS
+/END 
+
+

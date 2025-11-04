@@ -31,17 +31,17 @@ CONTROL_CODE	= 00000000 00000000;
   10:  R[141:gri command]=4    ;
   11:  !Wait for command processing ;
   12:  WAIT R[141:gri command]=(-1)    ;
-  13:  WAIT R[151:gri status]<>99    ;
-  14:  !Check if command succeeded ;
-  15:  IF R[151:gri status]=0,JMP LBL[17] ;
-  16:  !Command failed - set error status ;
-  17:  R[150:gri obj status]=23    ;
-  18:  END ;
-  19:  LBL[17] ;
-  20:  !Command succeeded - status in R[150] ;
+  13:  WAIT R[148:gri processing]=0    ;
+  14:  !Check result using uniform mapping ;
+  15:  IF R[150:gri error code]=0,JMP LBL[10] ;
+  16:  MESSAGE[GRI error, see R150/R151] ;
+  17:  JMP LBL[20] ;
+  18:  LBL[10] ;
+  19:  !Success: job status in R[152] (1..4) ;
+  20:  LBL[20] ;
   21:  END ;
   22:  LBL[99] ;
   23:  !Communication not ready ;
-  24:  R[150:gri obj status]=23    ;
+  24:  MESSAGE[GRI comm not ready] ;
 /POS
 /END 

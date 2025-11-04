@@ -15,11 +15,20 @@ CONST
   REG_PARAM_0 = 142          -- Parameter 0 register
   REG_PARAM_1 = 143          -- Parameter 1 register
   REG_PARAM_2 = 144          -- Parameter 2 register
+  REG_STATUS = 148           -- Processing flag (99 while processing, 0 idle)
   REG_COMM_STATUS = 149      -- Communication handshake register
-  REG_OBJECT_STATUS = 150    -- Object/Pose status register
-  REG_STATUS = 151           -- Status register (KAREL -> TP)
-  REG_RESULT = 152           -- Result data register
-  REG_REMAINING = 153        -- Remaining count register
+  -- Data registers (server-mapped)
+  REG_GRI_ERROR = 150        -- GRI error code register (server-mapped)
+  REG_DATA_1 = 151           -- data_1 (module return)
+  REG_DATA_2 = 152           -- data_2 (remaining primary OR job status for GET_JOB_STATUS)
+  REG_DATA_3 = 153           -- data_3 (remaining related)
+  REG_DATA_4 = 154           -- data_4
+  REG_DATA_5 = 155           -- data_5
+  REG_DATA_6 = 156           -- data_6
+  REG_DATA_7 = 157           -- data_7
+  REG_DATA_8 = 158           -- data_8
+  REG_DATA_9 = 159           -- data_9
+  REG_DATA_10 = 160          -- data_10
   
   -- Debug control register
   REG_DEBUG_FLAG = 140       -- R[140] debug flag (0=off, 1=on)
@@ -35,10 +44,7 @@ CONST
   GRI_STATUS_SUCCESS = 1     -- Command successful
   GRI_STATUS_ERROR = -1      -- Command failed
   
-  -- GRI Object Status codes
-  GRI_OBJ_POSE_FOUND = 20    -- Pose/Object found
-  GRI_OBJ_NO_POSE = 21       -- No pose/object found
-  GRI_OBJ_ERROR = 23         -- Error in pose/object detection
+  -- (No legacy object status constants)
 
 
 -- Global file variables - shared with included routines
@@ -74,7 +80,7 @@ VAR
   %INCLUDE gri_get_job_status_routine -- get_job_status
   %INCLUDE gri_get_next_grasp_routine -- get_next_grasp
   %INCLUDE gri_get_related_grasp_routine -- get_related_grasp
-  %INCLUDE gri_hec_routines         -- hec_init, hec_set_pose, hec_calibrate
+%INCLUDE gri_hec_routines         -- hec_init, hec_set_pose, hec_calibrate
 
 -- Helper routine to initialize pose variables to avoid uninitialized data error
 ROUTINE initialize_pose_variables
@@ -89,39 +95,7 @@ ROUTINE initialize_pose_variables
     next_rem_related = 0
   END initialize_pose_variables
 
--- Helper routine to handle pose-returning function register pattern
-ROUTINE handle_pose_function_result(func_result : INTEGER; pose : XYZWPR; rem_primary : INTEGER; rem_related : INTEGER)
-  BEGIN
-    IF func_result = GRI_ERR_NO_ERROR THEN
-      SET_INT_REG(150, 20, main_status)        -- Pose found
-      SET_INT_REG(152, rem_primary, main_status)  -- Remaining primary
-      SET_INT_REG(153, rem_related, main_status)  -- Remaining related
-      SET_POS_REG(53, pose, main_status)    -- Pose
-      SET_INT_REG(151, GRI_ERR_NO_ERROR, main_status)  -- Success (SET LAST!)
-    ELSE
-      SET_INT_REG(150, 23, main_status)        -- Error
-      SET_INT_REG(151, func_result, main_status) -- Error code (SET LAST!)
-    ENDIF
-  END handle_pose_function_result
-
--- Helper routine to handle simple confirmation function register pattern
-ROUTINE handle_confirmation_function_result(func_result : INTEGER)
-  BEGIN
-    SET_INT_REG(150, func_result, main_status)      -- Function result
-    SET_INT_REG(151, func_result, main_status)      -- Completion (SET LAST!)
-  END handle_confirmation_function_result
-
--- Helper routine to handle status function register pattern
-ROUTINE handle_status_function_result(func_result : INTEGER)
-  BEGIN
-    IF func_result >= 0 THEN
-      SET_INT_REG(150, func_result, main_status)      -- Status code
-      SET_INT_REG(151, GRI_ERR_NO_ERROR, main_status) -- Success (SET LAST!)
-    ELSE
-      SET_INT_REG(150, 0, main_status)          -- Unknown status
-      SET_INT_REG(151, func_result, main_status) -- Error code (SET LAST!)
-    ENDIF
-  END handle_status_function_result
+-- (Removed obsolete helper routines; uniform mapping handled in comm helpers)
 
 ROUTINE initialize_communication
   VAR
@@ -216,7 +190,7 @@ ROUTINE initialize_communication
     ENDIF
 
     -- FORCE DEBUG - remove after testing
-    g_debug_bytes_enabled = TRUE  -- TODO: disable this line to use R[140] for debug control
+    -- g_debug_bytes_enabled = TRUE  -- TODO: disable this line to use R[140] for debug control
     
     WRITE g_log_file('[GRI_COMM] Socket ', CLIENT_TAG, ' opened successfully', CR); WRITE TPDISPLAY('[GRI_COMM] Socket ', CLIENT_TAG, ' opened successfully', CR)
   END initialize_communication
@@ -225,6 +199,7 @@ ROUTINE process_command
   VAR
     real_flag : BOOLEAN
     real_val : REAL
+    action_name : STRING[20]
   BEGIN
     -- Get command and parameters from registers
     GET_REG(REG_COMMAND, real_flag, command_reg, real_val, main_status)
@@ -237,10 +212,35 @@ ROUTINE process_command
       last_command = command_reg
       
       
-      -- Set processing status in R[151] (all functions use this)
+      -- Set processing status (does not overlap with data mapping registers)
       SET_INT_REG(REG_STATUS, GRI_STATUS_PROCESSING, main_status)
       
-      WRITE g_log_file('[GRI_COMM] Processing command: ', command_reg, CR); WRITE TPDISPLAY('[GRI_COMM] Processing command: ', command_reg, CR)
+      action_name = 'UNKNOWN_ACTION'
+      -- Precompute action name and log BEFORE executing the action
+      SELECT command_reg OF
+        CASE (REQ_ACTION_TRIGGER_JOB_SYNC):
+          action_name = 'TRIGGER_JOB_SYNC'
+        CASE (REQ_ACTION_TRIGGER_JOB_ASYNC):
+          action_name = 'TRIGGER_JOB_ASYNC'
+        CASE (REQ_ACTION_GET_JOB_STATUS):
+          action_name = 'GET_JOB_STATUS'
+        CASE (REQ_ACTION_GET_NEXT_POSE):
+          action_name = 'GET_NEXT_POSE'
+        CASE (REQ_ACTION_GET_RELATED_POSE):
+          action_name = 'GET_RELATED_POSE'
+        CASE (REQ_ACTION_HEC_INIT):
+          action_name = 'HEC_INIT'
+        CASE (REQ_ACTION_HEC_SET_POSE):
+          action_name = 'HEC_SET_POSE'
+        CASE (REQ_ACTION_HEC_CALIBRATE):
+          action_name = 'HEC_CALIBRATE'
+        CASE (GRI_CMD_QUIT):
+          action_name = 'GRI_QUIT'
+        CASE (GRI_CMD_IDLE):
+          action_name = 'IDLE'
+      ENDSELECT
+
+      WRITE g_log_file('[GRI_COMM] ACTION ', command_reg, ' - ', action_name, CR); WRITE TPDISPLAY('[GRI_COMM] ACTION ', command_reg, ' - ', action_name, CR)
       
       SELECT command_reg OF
         
@@ -250,81 +250,84 @@ ROUTINE process_command
           initialize_pose_variables
           gri_result = trigger_job_sync(param_0, robot_pose, next_rem_primary, next_rem_related)
           
-          handle_pose_function_result(gri_result, robot_pose, next_rem_primary, next_rem_related)
+          -- Mapping handled in communication helpers
           
         CASE (REQ_ACTION_GET_NEXT_POSE):
           -- Initialize pose to avoid uninitialized data error
           initialize_pose_variables
           gri_result = get_next_grasp(param_0, robot_pose, next_rem_primary, next_rem_related)
           
-          handle_pose_function_result(gri_result, robot_pose, next_rem_primary, next_rem_related)
+          -- Mapping handled in communication helpers
           
         CASE (REQ_ACTION_GET_RELATED_POSE):
           -- Initialize pose to avoid uninitialized data error
           initialize_pose_variables
           gri_result = get_related_grasp(param_0, robot_pose, next_rem_primary, next_rem_related)
           
-          handle_pose_function_result(gri_result, robot_pose, next_rem_primary, next_rem_related)
+          -- Mapping handled in communication helpers
           
         -- STATUS FUNCTIONS: R[150] = status code, R[151] = completion
         CASE (REQ_ACTION_GET_JOB_STATUS):
           gri_result = get_job_status(param_0)
           
-          -- Set registers according to GRI pattern for status functions
-          handle_status_function_result(gri_result)
+          -- Mapping handled in communication helpers
           
         -- CONFIRMATION FUNCTIONS: R[150] = result, R[151] = completion
         CASE (REQ_ACTION_TRIGGER_JOB_ASYNC):
-          trigger_job_async(param_0)
-          gri_result = GRI_ERR_NO_ERROR
+          gri_result = trigger_job_async(param_0)
           
-          -- Set registers according to GRI pattern for confirmation functions
-          handle_confirmation_function_result(gri_result)
+          -- Mapping handled in communication helpers
           
         CASE (REQ_ACTION_HEC_INIT):
           gri_result = hec_init(param_0)
           
-          -- Set registers according to GRI pattern for confirmation functions
-          handle_confirmation_function_result(gri_result)
+          -- Mapping handled in communication helpers
           
         CASE (REQ_ACTION_HEC_SET_POSE):
           gri_result = hec_set_pose(param_0, param_1)
           
-          -- Set registers according to GRI pattern for confirmation functions
-          handle_confirmation_function_result(gri_result)
+          -- Mapping handled in communication helpers
           
         CASE (REQ_ACTION_HEC_CALIBRATE):
           gri_result = hec_calibrate(param_0)
           
-          -- Set registers according to GRI pattern for confirmation functions
-          handle_confirmation_function_result(gri_result)
+          -- Mapping handled in communication helpers
           
         CASE (GRI_CMD_QUIT):
           WRITE g_log_file('[GRI_COMM] Quitting...', CR); WRITE TPDISPLAY('[GRI_COMM] Quitting...', CR)
           gri_result = GRI_ERR_NO_ERROR
           
-          -- Set registers according to GRI pattern for confirmation functions
-          handle_confirmation_function_result(gri_result)
+          -- Mapping handled in communication helpers
           -- Exit will be handled in main loop
           
         CASE (GRI_CMD_IDLE):
           -- Do nothing, just acknowledge
           gri_result = GRI_ERR_NO_ERROR
-          SET_INT_REG(151, gri_result, main_status)      -- Completion
+          -- No register writes here; idle acknowledgement only
           
         ELSE:
           WRITE g_log_file('[GRI_COMM] Unknown command: ', command_reg, CR); WRITE TPDISPLAY('[GRI_COMM] Unknown command: ', command_reg, CR)
           gri_result = GRI_ERR_INVALID_ACTION
           
-          -- Set error in both registers
-          SET_INT_REG(150, gri_result, main_status)      -- Error
-          SET_INT_REG(151, gri_result, main_status)      -- Completion (SET LAST!)
+          -- Set GRI error and clear server-mapped data registers
+          SET_INT_REG(150, gri_result, main_status)
+          SET_INT_REG(151, 0, main_status)
+          SET_INT_REG(152, 0, main_status)
+          SET_INT_REG(153, 0, main_status)
+          SET_INT_REG(154, 0, main_status)
+          SET_INT_REG(155, 0, main_status)
+          SET_INT_REG(156, 0, main_status)
+          SET_INT_REG(157, 0, main_status)
+          SET_INT_REG(158, 0, main_status)
+          SET_INT_REG(159, 0, main_status)
+          SET_INT_REG(160, 0, main_status)
           
       ENDSELECT
       
-      -- Reset command register to idle
+      -- Reset command register to idle and clear processing flag
       SET_INT_REG(REG_COMMAND, GRI_CMD_IDLE, main_status)
       last_command = GRI_CMD_IDLE  -- Update last_command to prevent re-processing same command
+      SET_INT_REG(REG_STATUS, GRI_STATUS_IDLE, main_status)
       
       -- (log left open; per-command flush disabled due to append mode incompatibility)
       
@@ -345,21 +348,28 @@ BEGIN -- Main program loop
   
   -- Add register comments for user-friendly interface
   SET_REG_CMT(REG_COMMAND, 'gri command', main_status)
-  SET_REG_CMT(REG_STATUS, 'gri status', main_status) 
+  SET_REG_CMT(REG_STATUS, 'gri processing (99 while processing, 0 idle)', main_status) 
   SET_REG_CMT(REG_PARAM_0, 'gri param 0', main_status)
   SET_REG_CMT(REG_PARAM_1, 'gri param 1', main_status)
   SET_REG_CMT(REG_PARAM_2, 'gri param 2', main_status)
-  SET_REG_CMT(REG_RESULT, 'gri result', main_status)
-  SET_REG_CMT(REG_REMAINING, 'gri remaining', main_status)
+  -- (no generic result/remaining aliases; see explicit data_2/data_3 below)
   SET_REG_CMT(REG_COMM_STATUS, 'gri comm status', main_status)
   SET_REG_CMT(REG_DEBUG_FLAG, 'gri debug (0=off,1=on)', main_status)
   
   -- Add GRI register pattern comments
-  SET_REG_CMT(REG_OBJECT_STATUS, 'gri obj status', main_status)
-  SET_REG_CMT(152, 'gri data 1', main_status)
-  SET_REG_CMT(153, 'gri data 2', main_status)
+  SET_REG_CMT(REG_GRI_ERROR, 'gri error code', main_status)
+  SET_REG_CMT(REG_DATA_1, 'data_1 (module return)', main_status)
+  SET_REG_CMT(REG_DATA_2, 'data_2 (remaining primary OR job status)', main_status)
+  SET_REG_CMT(REG_DATA_3, 'data_3 (remaining related)', main_status)
+  SET_REG_CMT(REG_DATA_4, 'data_4', main_status)
+  SET_REG_CMT(REG_DATA_5, 'data_5', main_status)
+  SET_REG_CMT(REG_DATA_6, 'data_6', main_status)
+  SET_REG_CMT(REG_DATA_7, 'data_7', main_status)
+  SET_REG_CMT(REG_DATA_8, 'data_8', main_status)
+  SET_REG_CMT(REG_DATA_9, 'data_9', main_status)
+  SET_REG_CMT(REG_DATA_10, 'data_10', main_status)
 
-  SET_REG_CMT(155, 'gri pose ready', main_status)
+  -- (no separate pose-ready flag; pose is written to PR[53] on success)
   -- Position register comments
   SET_PREG_CMT(51, 'gri next grasp', main_status)
   SET_PREG_CMT(53, 'gri move pose', main_status)

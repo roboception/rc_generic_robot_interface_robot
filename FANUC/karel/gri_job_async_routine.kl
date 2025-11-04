@@ -1,11 +1,14 @@
 -- File: gri_job_async_routine.kl
 -- Contains the communication routine for GRI asynchronous job trigger.
 
-ROUTINE trigger_job_async(job_id_to_send : INTEGER)
+ROUTINE trigger_job_async(job_id_to_send : INTEGER) : INTEGER
   VAR
     local_status        : INTEGER
     i                   : INTEGER -- Loop counter
     server_error        : INTEGER
+    result_pose         : XYZWPR
+    rem_primary         : INTEGER
+    rem_related         : INTEGER
 
     -- Request Data
     req_data_int_arr    : ARRAY[NUM_DATA_INTS_TO_SEND] OF INTEGER
@@ -21,44 +24,9 @@ ROUTINE trigger_job_async(job_id_to_send : INTEGER)
     WRITE g_log_file(LPRE_ASYNC, 'Triggering Job: ', job_id_to_send, CR)
     
 
-    -- Use modular routine to build and send request header
-    local_status = send_request_header(REQ_ACTION_TRIGGER_JOB_ASYNC, job_id_to_send, LPRE_ASYNC)
-    IF local_status <> SUCCESS_STATUS THEN
-      RETURN
-    ENDIF
-    
-    -- Use modular routine to send pose data (auto CURPOS)
-    local_status = send_pose_data(LPRE_ASYNC)
-    IF local_status <> SUCCESS_STATUS THEN 
-      RETURN
-    ENDIF
+    -- Treat ASYNC as synchronous on the client, using unified non-pose helper
+    server_error = gri_communicate_no_pose(REQ_ACTION_TRIGGER_JOB_ASYNC, job_id_to_send, LPRE_ASYNC, FALSE,
+      req_data_int_arr[1], req_data_int_arr[2], req_data_int_arr[3], req_data_int_arr[4])
 
-    -- Use modular routine to send data integers
-    local_status = send_data_integers(req_data_int_arr, NUM_DATA_INTS_TO_SEND, LPRE_ASYNC)
-    IF local_status <> SUCCESS_STATUS THEN
-      RETURN
-    ENDIF
-
-    -- Use modular routine to read response header with error tolerance
-    server_error = read_response_header_with_error_code(REQ_ACTION_TRIGGER_JOB_ASYNC, job_id_to_send, LPRE_ASYNC)
-    IF server_error < 0 THEN
-      WRITE TPDISPLAY(LPRE_ASYNC, '[ERR_COMM_FAILED]', CR)
-      WRITE g_log_file(LPRE_ASYNC, '[ERR_COMM_FAILED]', CR)
-      RETURN
-    ENDIF
-
-    IF server_error <> GRI_ERR_NO_ERROR THEN
-      WRITE TPDISPLAY(LPRE_ASYNC, '[WARN_RESP_ERR_CODE] Server reported error: ', server_error, ' - ', get_error_message(server_error), CR)
-      WRITE g_log_file(LPRE_ASYNC, '[WARN_RESP_ERR_CODE] Server reported error: ', server_error, ' - ', get_error_message(server_error), CR)
-    ENDIF
-
-    -- Use modular routine to consume response payload
-    local_status = consume_response_payload(LPRE_ASYNC)
-    IF local_status <> SUCCESS_STATUS THEN
-      RETURN
-    ENDIF
-
-    WRITE TPDISPLAY(LPRE_ASYNC, 'Success', CR)
-    WRITE g_log_file(LPRE_ASYNC, 'Success', CR)
-
+    RETURN(server_error)
   END trigger_job_async 

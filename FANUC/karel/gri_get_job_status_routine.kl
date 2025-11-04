@@ -9,8 +9,8 @@ ROUTINE get_job_status(job_id_to_query : INTEGER) : INTEGER
     WRITE TPDISPLAY(LPRE_GETSTAT, 'Querying job status for ID: ', job_id_to_query, CR)
     WRITE g_log_file(LPRE_GETSTAT, 'Querying job status for ID: ', job_id_to_query, CR)
     
-    -- Use comprehensive communication helper for status functions
-    job_status_result = gri_communicate_for_status(REQ_ACTION_GET_JOB_STATUS, job_id_to_query, LPRE_GETSTAT)
+    -- Unified non-pose helper with explicit zeros (d1..d4)
+    job_status_result = gri_communicate_no_pose(REQ_ACTION_GET_JOB_STATUS, job_id_to_query, LPRE_GETSTAT, TRUE, 0, 0, 0, 0)
     
     RETURN(job_status_result)
   END get_job_status

@@ -19,8 +19,8 @@ ROUTINE hec_init(pipeline_id : INTEGER) : INTEGER
       req_data_int_arr[i] = 0
     ENDFOR
     
-    -- Use comprehensive communication helper
-    RETURN(gri_communicate_for_confirmation(REQ_ACTION_HEC_INIT, 0, req_data_int_arr, LPRE_HEC_INIT))
+    -- Unified non-pose helper (map_status=FALSE)
+    RETURN(gri_communicate_no_pose(REQ_ACTION_HEC_INIT, 0, LPRE_HEC_INIT, FALSE, pipeline_id, 0, 0, 0))
   END hec_init
 
 -- HEC Function: Set pose for calibration  
@@ -42,8 +42,8 @@ ROUTINE hec_set_pose(pipeline_id : INTEGER; slot_id : INTEGER) : INTEGER
       req_data_int_arr[i] = 0
     ENDFOR
     
-    -- Use comprehensive communication helper
-    RETURN(gri_communicate_for_confirmation(REQ_ACTION_HEC_SET_POSE, 0, req_data_int_arr, LPRE_HEC_SET))
+    -- Unified non-pose helper (map_status=FALSE)
+    RETURN(gri_communicate_no_pose(REQ_ACTION_HEC_SET_POSE, 0, LPRE_HEC_SET, FALSE, pipeline_id, slot_id, 0, 0))
   END hec_set_pose
 
 -- HEC Function: Perform calibration
@@ -63,6 +63,6 @@ ROUTINE hec_calibrate(pipeline_id : INTEGER) : INTEGER
       req_data_int_arr[i] = 0
     ENDFOR
     
-    -- Use comprehensive communication helper
-    RETURN(gri_communicate_for_confirmation(REQ_ACTION_HEC_CALIBRATE, 0, req_data_int_arr, LPRE_HEC_CALIB))
+    -- Unified non-pose helper (map_status=FALSE)
+    RETURN(gri_communicate_no_pose(REQ_ACTION_HEC_CALIBRATE, 0, LPRE_HEC_CALIB, FALSE, pipeline_id, 0, 0, 0))
   END hec_calibrate 

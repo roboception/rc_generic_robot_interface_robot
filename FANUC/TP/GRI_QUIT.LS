@@ -28,7 +28,7 @@ CONTROL_CODE	= 00000000 00000000;
    7:  R[143:param1]=0    ;
    8:  R[144:param2]=0    ;
    9:  R[141:gri command]=99    ;
-  10:  WAIT R[151:gri status]<>99    ;
+  10:  WAIT R[148:gri processing]=0    ;
   11:  MESSAGE[Background Program Stopped] ;
   12:  JMP LBL[100] ;
   13:  LBL[99] ;
