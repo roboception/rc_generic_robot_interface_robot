@@ -1,81 +1,139 @@
 MODULE RcExampleMainModule
-    VAR bool do_hand_eye_calibration := FALSE;
     
     PROC main()
         VAR robtarget target1;
         VAR robtarget target2;
         VAR robtarget target3;
-        VAR robtarget target4;
-        VAR num job_id_1 := 1;
-        VAR num job_id_2 := 9;
+        VAR robtarget related_target;
+        VAR num job_id_sync := 0;
+        VAR num job_id_async := 1;
         VAR num job_status;
+        VAR num remaining_primary;
+        VAR num remaining_related;
+        VAR num node_return_code;
+        VAR num attempt;
+        VAR bool system_ready;
+        VAR bool status_ready;
 
         ! Connect to server
         socket_connect;
         
-        IF do_hand_eye_calibration THEN
-            ErrWrite \I, "CalibrationInfo", "Starting hand-eye calibration...";
-            perform_hand_eye_calibration;
-        ENDIF
-        
-        ! Trigger sync job and get first target
-        IF trigger_job_sync(job_id_1, target1 \debug:=FALSE) THEN
-            print_robtarget "Target1", target1;
+        ! 1. Check overall system STATUS
+        ErrWrite \I, "Step1", "Checking overall system STATUS...";
+        system_ready := get_status(\ready:=status_ready \debug:=FALSE);
+        IF system_ready THEN
+            ErrWrite \I, "StatusInfo", "System is ready";
         ELSE
-            ErrWrite \W, "MainError", "Failed to get Target1";
+            ErrWrite \W, "StatusWarning", "System not ready";
+        ENDIF
+        WaitTime 1;
+        
+        ! 2. Trigger sync job and get first target
+        ErrWrite \I, "Step2", "Triggering synchronous vision job (job_id=" + NumToStr(job_id_sync, 0) + ")...";
+        IF trigger_job_sync(job_id_sync, target1 \remaining_primary:=remaining_primary \remaining_related:=remaining_related \node_return_code:=node_return_code \debug:=FALSE) THEN
+            print_robtarget "SyncJob_FirstPose", target1;
+            ErrWrite \I, "SyncJobInfo", "Remaining primary=" + NumToStr(remaining_primary, 0) + ", related=" + NumToStr(remaining_related, 0) + ", node_return=" + NumToStr(node_return_code, 0);
+        ELSE
+            ErrWrite \W, "MainError", "Failed to get first pose from sync job";
             socket_disconnect;
             RETURN;
         ENDIF
-        WaitTime(1);
+        WaitTime 1;
+        
+        ! 3. Attempt to retrieve a related pose for the synchronous job
+        ErrWrite \I, "Step3", "Attempting to retrieve a related pose for the synchronous job...";
+        IF get_related_pose(job_id_sync, related_target \remaining_related:=remaining_related \node_return_code:=node_return_code \debug:=FALSE) THEN
+            print_robtarget "SyncJob_RelatedPose", related_target;
+            ErrWrite \I, "RelatedPoseInfo", "Remaining related=" + NumToStr(remaining_related, 0);
+        ELSE
+            ErrWrite \I, "RelatedPoseInfo", "No related pose available for sync job";
+        ENDIF
+        WaitTime 1;
+        
+        ! 4. Fetch additional poses for the synchronous job
+        ErrWrite \I, "Step4", "Fetching additional poses for the synchronous job...";
+        FOR attempt FROM 1 TO 3 DO
+            IF get_next_pose(job_id_sync, target2 \remaining_primary:=remaining_primary \remaining_related:=remaining_related \node_return_code:=node_return_code \debug:=FALSE) THEN
+                print_robtarget "SyncJob_NextPose_" + NumToStr(attempt, 0), target2;
+                ErrWrite \I, "NextPoseInfo", "Remaining primary=" + NumToStr(remaining_primary, 0) + ", related=" + NumToStr(remaining_related, 0);
+                ! If there are related poses, try to get one
+                IF remaining_related > 0 THEN
+                    IF get_related_pose(job_id_sync, related_target \remaining_related:=remaining_related \node_return_code:=node_return_code \debug:=FALSE) THEN
+                        print_robtarget "SyncJob_FollowUpRelated_" + NumToStr(attempt, 0), related_target;
+                    ENDIF
+                ENDIF
+                ! Stop if no more primary poses
+                IF remaining_primary <= 0 THEN
+                    ErrWrite \I, "NextPoseInfo", "No more primary poses available";
+                    EXIT;
+                ENDIF
+            ELSE
+                ErrWrite \I, "NextPoseInfo", "No more primary poses reported for sync job";
+                EXIT;
+            ENDIF
+        ENDFOR
+        WaitTime 1;
 
-        ! Trigger async job
-        IF trigger_job_async(job_id_2 \debug:=FALSE) THEN
-            ErrWrite \W, "Success", "Async job triggered successfully"; 
+        ! 5. Trigger asynchronous vision job
+        ErrWrite \I, "Step5", "Triggering asynchronous vision job (job_id=" + NumToStr(job_id_async, 0) + ")...";
+        IF trigger_job_async(job_id_async \debug:=FALSE) THEN
+            ErrWrite \I, "AsyncJobInfo", "Async job triggered successfully"; 
         ELSE
             ErrWrite \W, "MainError", "Failed to trigger async job";
             socket_disconnect;
             RETURN;
         ENDIF
-        WaitTime(1);
+        WaitTime 1;
 
-        ! Get and display job status
-        job_status := get_job_status(job_id_2 \debug:=FALSE);
+        ! 6. Poll job status once before waiting
+        ErrWrite \I, "Step6", "Polling job status once before waiting...";
+        job_status := get_job_status(job_id_async \debug:=FALSE);
         TEST job_status
             CASE JOB_STATUS_DONE:
-                ErrWrite \I, "JobInfo", "Job completed successfully";
+                ErrWrite \I, "JobStatus", "Job completed successfully";
             CASE JOB_STATUS_FAILED:
-                ErrWrite \I, "JobInfo", "Job failed";
+                ErrWrite \I, "JobStatus", "Job failed";
             CASE JOB_STATUS_RUNNING:
-                ErrWrite \I, "JobInfo", "Job is running";
+                ErrWrite \I, "JobStatus", "Job is running";
             CASE JOB_STATUS_INACTIVE:
-                ErrWrite \I, "JobInfo", "Job is inactive";
+                ErrWrite \I, "JobStatus", "Job is inactive";
             DEFAULT:
-                ErrWrite \I, "JobInfo", "Job status unknown";
+                ErrWrite \I, "JobStatus", "Job status unknown";
         ENDTEST
-        WaitTime(1);
+        WaitTime 1;
         
-        ! Wait for job completion with timeout
-        IF NOT wait_for_job(job_id_2 \delay:=1000 \timeout:=5000 \debug:=FALSE) THEN
+        ! 7. Wait for asynchronous job to complete
+        ErrWrite \I, "Step7", "Waiting for asynchronous job to complete...";
+        IF NOT wait_for_job(job_id_async \delay:=500 \timeout:=10000 \debug:=FALSE) THEN
             ErrWrite \W, "MainError", "Job wait timeout or error";
             socket_disconnect;
             RETURN;
         ENDIF
+        ErrWrite \I, "WaitInfo", "Job completed";
+        WaitTime 1;
         
-        ! Get and display next pose
-        IF get_next_pose(job_id_2, target2 \debug:=FALSE) THEN
-            print_robtarget "Target2", target2;
-        ENDIF
-        ! Get and display related pose
-        IF get_related_pose(job_id_2, target3 \debug:=FALSE) THEN
-            print_robtarget "Target2_related", target3;
-        ENDIF
-        WaitTime(1);
-        ! Get and display next pose
-        IF get_next_pose(job_id_2, target4 \debug:=FALSE) THEN
-            print_robtarget "Target4", target4;
-        ENDIF
-        
+        ! 8. Retrieving poses produced by the asynchronous job
+        ErrWrite \I, "Step8", "Retrieving poses produced by the asynchronous job...";
+        FOR attempt FROM 1 TO 5 DO
+            IF get_next_pose(job_id_async, target3 \remaining_primary:=remaining_primary \remaining_related:=remaining_related \node_return_code:=node_return_code \debug:=FALSE) THEN
+                print_robtarget "AsyncJob_Pose_" + NumToStr(attempt, 0), target3;
+                ErrWrite \I, "AsyncPoseInfo", "Remaining primary=" + NumToStr(remaining_primary, 0) + ", related=" + NumToStr(remaining_related, 0);
+                ! Try to get related pose
+                IF get_related_pose(job_id_async, related_target \remaining_related:=remaining_related \node_return_code:=node_return_code \debug:=FALSE) THEN
+                    print_robtarget "AsyncJob_Related_" + NumToStr(attempt, 0), related_target;
+                ENDIF
+                ! Stop if no more primary poses
+                IF remaining_primary <= 0 THEN
+                    ErrWrite \I, "AsyncPoseInfo", "No more primary poses available";
+                    EXIT;
+                ENDIF
+            ELSE
+                ErrWrite \I, "AsyncPoseInfo", "No more primary poses reported for async job";
+                EXIT;
+            ENDIF
+        ENDFOR
 
+        ErrWrite \I, "MainInfo", "Example program finished. Disconnecting.";
         ! Clean disconnect
         socket_disconnect;
         

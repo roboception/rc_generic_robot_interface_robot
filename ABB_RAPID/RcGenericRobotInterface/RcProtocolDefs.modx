@@ -1,14 +1,19 @@
 MODULE RcProtocolDefs(READONLY)
-    ! Protocol V2 specific constants
-    CONST num MAGIC_NUMBER := 2;
-    CONST num PROTOCOL_VERSION := 2;
-    CONST num REQUEST_MESSAGE_LENGTH := 50;
-    CONST num RESPONSE_MESSAGE_LENGTH := 55;
+    ! Protocol V1 specific constants
+    ! NOTE: Pose format is FIXED by the server specification. ABB uses QUAT_WXYZ (1).
+    ! MAGIC_NUMBER is uint32 little-endian for ASCII "GRI\0" (bytes 47 52 49 00) => 0x00495247 => 4807239
+    CONST num MAGIC_NUMBER := 4807239;
+    CONST num PROTOCOL_VERSION := 1;
+    CONST num REQUEST_MESSAGE_LENGTH := 54;
+    CONST num RESPONSE_MESSAGE_LENGTH := 80;
     
-    ! Updated pose format constants
-    CONST num POSE_FORMAT_MM_QUATERNION := 2;
+    ! Pose format constants (subset used by RAPID integration)
+    ! ABB uses QUAT_WXYZ (format 1): rot_1=W, rot_2=X, rot_3=Y, rot_4=Z
+    ! Maps to robtarget.rot.q1=W, q2=X, q3=Y, q4=Z
+    CONST num POSE_FORMAT_QUAT_WXYZ := 1;     ! QUAT_WXYZ (ABB default)
+    CONST num POSE_FORMAT_AXIS_ANGLE_RAD := 3;   ! Axis-angle (not used here)
     
-    ! Updated action constants
+    ! Action constants (spec §3)
     CONST num ACTION_UNKNOWN := 0;
     CONST num ACTION_STATUS := 1;
     CONST num ACTION_TRIGGER_JOB_SYNC := 2;
@@ -20,32 +25,33 @@ MODULE RcProtocolDefs(READONLY)
     CONST num ACTION_HEC_SET_POSE := 8;
     CONST num ACTION_HEC_CALIBRATE := 9;
     
-    ! Updated error code definitions
+    ! Error code definitions (signed int16 semantics per spec §5)
+    ! Negative (<0) = error, 0 = success, Positive (>0) = warnings
     CONST num ERR_NO_ERROR := 0;
-    CONST num ERR_UNKNOWN_ERROR := 1;
-    CONST num ERR_INTERNAL_ERROR := 2;
-    CONST num ERR_API_NOT_REACHABLE := 3;
-    CONST num ERR_PIPELINE_NOT_AVAILABLE := 4;
-    CONST num ERR_INVALID_REQUEST_ERROR := 5;
-    CONST num ERR_INVALID_REQUEST_LENGTH := 6;
-    CONST num ERR_INVALID_ACTION := 7;
-    CONST num ERR_PROCESSING_TIMEOUT := 8;
-    CONST num ERR_UNKNOWN_PROTOCOL_VERSION := 9;
-    CONST num ERR_JOB_DOES_NOT_EXIST := 10;
-    CONST num ERR_JOB_CHANGED := 11;
-    CONST num ERR_MISCONFIGURED_JOB := 12;
-    CONST num ERR_NO_POSES_FOUND := 13;
-    CONST num ERR_NO_ASSOCIATED_OBJECTS := 14;
-    CONST num ERR_NO_RETURN_SPECIFIED := 15;
-    CONST num ERR_JOB_STILL_RUNNING := 16;
-    CONST num ERR_HEC_CONFIG_ERROR := 17;
-    CONST num ERR_HEC_INIT_ERROR := 18;
-    CONST num ERR_HEC_SET_POSE_ERROR := 19;
-    CONST num ERR_HEC_CALIBRATE_ERROR := 20;
-    CONST num ERR_HEC_INSUFFICIENT_DETECTION := 21;
-    CONST num ERR_NOT_IMPLEMENTED := 100;
-    CONST num ERR_API_ERROR := 101;
-    CONST num ERR_API_RESPONSE_ERROR := 102;
+    ! Negative errors
+    CONST num ERR_UNKNOWN_ERROR := -1;
+    CONST num ERR_INTERNAL_ERROR := -2;
+    CONST num ERR_API_NOT_REACHABLE := -3;
+    CONST num ERR_API_RESPONSE_ERROR := -4;
+    CONST num ERR_PIPELINE_NOT_AVAILABLE := -5;
+    CONST num ERR_INVALID_REQUEST_ERROR := -6;
+    CONST num ERR_INVALID_REQUEST_LENGTH := -7;
+    CONST num ERR_INVALID_ACTION := -8;
+    CONST num ERR_PROCESSING_TIMEOUT := -9;
+    CONST num ERR_UNKNOWN_PROTOCOL_VERSION := -10;
+    CONST num ERR_WRONG_PROTOCOL_FOR_JOB := -11;
+    CONST num ERR_JOB_DOES_NOT_EXIST := -12;
+    CONST num ERR_MISCONFIGURED_JOB := -13;
+    CONST num ERR_HEC_CONFIG_ERROR := -14;
+    CONST num ERR_HEC_INIT_ERROR := -15;
+    CONST num ERR_HEC_SET_POSE_ERROR := -16;
+    CONST num ERR_HEC_CALIBRATE_ERROR := -17;
+    CONST num ERR_HEC_INSUFFICIENT_DETECTION := -18;
+    ! Positive warnings
+    CONST num ERR_NO_POSES_FOUND := 1;
+    CONST num ERR_NO_RELATED_POSES := 2;
+    CONST num ERR_NO_RETURN_SPECIFIED := 3;
+    CONST num ERR_JOB_STILL_RUNNING := 4;
     
     ! Added job status constants
     CONST num JOB_STATUS_UNKNOWN := 0;
@@ -65,6 +71,8 @@ MODULE RcProtocolDefs(READONLY)
                 RETURN "Internal Error";
             CASE ERR_API_NOT_REACHABLE:
                 RETURN "API Not Reachable";
+            CASE ERR_API_RESPONSE_ERROR:
+                RETURN "API Response Error";
             CASE ERR_PIPELINE_NOT_AVAILABLE:
                 RETURN "Pipeline Not Available";
             CASE ERR_INVALID_REQUEST_ERROR:
@@ -77,16 +85,16 @@ MODULE RcProtocolDefs(READONLY)
                 RETURN "Processing Timeout";
             CASE ERR_UNKNOWN_PROTOCOL_VERSION:
                 RETURN "Unknown Protocol Version";
+            CASE ERR_WRONG_PROTOCOL_FOR_JOB:
+                RETURN "Wrong Protocol For Job";
             CASE ERR_JOB_DOES_NOT_EXIST:
                 RETURN "Job Does Not Exist";
-            CASE ERR_JOB_CHANGED:
-                RETURN "Job Changed";
             CASE ERR_MISCONFIGURED_JOB:
                 RETURN "Misconfigured Job";
             CASE ERR_NO_POSES_FOUND:
                 RETURN "No Poses Found";
-            CASE ERR_NO_ASSOCIATED_OBJECTS:
-                RETURN "No Associated Objects";
+            CASE ERR_NO_RELATED_POSES:
+                RETURN "No Related Poses";
             CASE ERR_NO_RETURN_SPECIFIED:
                 RETURN "No Return Specified";
             CASE ERR_JOB_STILL_RUNNING:
@@ -101,12 +109,6 @@ MODULE RcProtocolDefs(READONLY)
                 RETURN "HEC Calibrate Error";
             CASE ERR_HEC_INSUFFICIENT_DETECTION:
                 RETURN "HEC Insufficient Detection";
-            CASE ERR_NOT_IMPLEMENTED:
-                RETURN "Not Implemented";
-            CASE ERR_API_ERROR:
-                RETURN "API Error";
-            CASE ERR_API_RESPONSE_ERROR:
-                RETURN "API Response Error";
             DEFAULT:
                 RETURN "Unknown Error Code";
         ENDTEST

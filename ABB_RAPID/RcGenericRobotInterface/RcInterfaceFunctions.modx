@@ -6,7 +6,82 @@ MODULE RcInterfaceFunctions(READONLY)
     LOCAL VAR rawbytes request;
     LOCAL VAR rawbytes response;
     
-    FUNC bool trigger_job_sync(num job_id, INOUT robtarget output_point, \bool debug)
+    FUNC bool get_status(\VAR bool ready, \bool debug)
+        VAR num magic;
+        VAR num protocol_ver;
+        VAR num message_length;
+        VAR num pose_format;
+        VAR num action;
+        VAR num resp_job_id;
+        VAR num error_code;
+        VAR robtarget pose;
+        VAR num data1;
+        VAR num data2;
+        VAR num data3;
+        VAR num data4;
+        VAR num data5;
+        
+        ! Pack and send STATUS request
+        request_pack request, ACTION_STATUS, 0;
+
+        IF NOT socket_send_receive(request, response \debug:=debug) THEN
+            RETURN FALSE;
+        ENDIF
+
+        
+        ! Unpack response
+        IF NOT response_unpack(response,
+                             magic,
+                             protocol_ver,
+                             message_length,
+                             pose_format,
+                             action,
+                             resp_job_id,
+                             error_code,
+                             pose,
+                             data1,
+                             data2,
+                             data3,
+                             data4,
+                             data5) THEN
+            RETURN FALSE;
+        ENDIF
+        
+        IF error_code = 0 THEN
+            ! data2 contains readiness flag (1 = ready, 0 = not ready)
+            ! Set OUT parameter if present
+            IF Present(ready) THEN
+                IF data2 = 1 THEN
+                    ready := TRUE;
+                ELSE
+                    ready := FALSE;
+                ENDIF
+            ENDIF
+            
+            IF Present(debug) THEN
+                ErrWrite \I, "StatusInfo", "System ready: " + NumToStr(data2, 0);
+            ENDIF
+            
+            IF data2 = 1 THEN
+                RETURN TRUE;
+            ELSE
+                RETURN FALSE;
+            ENDIF
+        ELSE
+            ! On error, set ready to FALSE if parameter provided
+            IF Present(ready) THEN
+                ready := FALSE;
+            ENDIF
+            ErrWrite \W, "StatusError", "Status check failed: " + get_error_string(error_code);
+            RETURN FALSE;
+        ENDIF
+        
+    ERROR
+        ErrWrite \W, "StatusError", "Failed checking system status";
+        RETURN FALSE;
+    ENDFUNC
+    
+    FUNC bool trigger_job_sync(num job_id, INOUT robtarget output_point, \VAR num remaining_primary, \VAR num remaining_related, \VAR num node_return_code, \bool debug)
         VAR num magic;
         VAR num protocol_ver;
         VAR num message_length;
@@ -47,6 +122,17 @@ MODULE RcInterfaceFunctions(READONLY)
                              data4,
                              data5) THEN
             RETURN FALSE;
+        ENDIF
+        
+        ! Set OUT parameters (data1 = node return code, data2 = remaining primary, data3 = remaining related)
+        IF Present(node_return_code) THEN
+            node_return_code := data1;
+        ENDIF
+        IF Present(remaining_primary) THEN
+            remaining_primary := data2;
+        ENDIF
+        IF Present(remaining_related) THEN
+            remaining_related := data3;
         ENDIF
         
         IF error_code = 0 THEN
@@ -117,7 +203,7 @@ MODULE RcInterfaceFunctions(READONLY)
         RETURN FALSE;
     ENDFUNC
     
-    FUNC bool get_next_pose(num job_id, INOUT robtarget output_point, \bool debug)
+    FUNC bool get_next_pose(num job_id, INOUT robtarget output_point, \VAR num remaining_primary, \VAR num remaining_related, \VAR num node_return_code, \bool debug)
         VAR num magic;
         VAR num protocol_ver;
         VAR num message_length;
@@ -156,6 +242,17 @@ MODULE RcInterfaceFunctions(READONLY)
             RETURN FALSE;
         ENDIF
         
+        ! Set OUT parameters (data1 = node return code, data2 = remaining primary, data3 = remaining related)
+        IF Present(node_return_code) THEN
+            node_return_code := data1;
+        ENDIF
+        IF Present(remaining_primary) THEN
+            remaining_primary := data2;
+        ENDIF
+        IF Present(remaining_related) THEN
+            remaining_related := data3;
+        ENDIF
+        
         IF error_code = 0 THEN
             RETURN TRUE;
         ELSE
@@ -168,7 +265,7 @@ MODULE RcInterfaceFunctions(READONLY)
         RETURN FALSE;
     ENDFUNC
     
-    FUNC bool get_related_pose(num job_id, INOUT robtarget output_point, \bool debug)
+    FUNC bool get_related_pose(num job_id, INOUT robtarget output_point, \VAR num remaining_related, \VAR num node_return_code, \bool debug)
         VAR num magic;
         VAR num protocol_ver;
         VAR num message_length;
@@ -207,6 +304,14 @@ MODULE RcInterfaceFunctions(READONLY)
             RETURN FALSE;
         ENDIF
         
+        ! Set OUT parameters (data1 = node return code, data3 = remaining related)
+        IF Present(node_return_code) THEN
+            node_return_code := data1;
+        ENDIF
+        IF Present(remaining_related) THEN
+            remaining_related := data3;
+        ENDIF
+        
         IF error_code = 0 THEN
             RETURN TRUE;
         ELSE
@@ -219,7 +324,7 @@ MODULE RcInterfaceFunctions(READONLY)
         RETURN FALSE;
     ENDFUNC
     
-    FUNC num get_job_status(num job_id, \bool debug)
+    FUNC num get_job_status(num job_id, \VAR num error_code_out, \VAR num node_return_code, \bool debug)
         VAR num magic;
         VAR num protocol_ver;
         VAR num message_length;
@@ -259,12 +364,20 @@ MODULE RcInterfaceFunctions(READONLY)
             RETURN JOB_STATUS_UNKNOWN;
         ENDIF
         
+        ! Set OUT parameters
+        IF Present(error_code_out) THEN
+            error_code_out := error_code;
+        ENDIF
+        IF Present(node_return_code) THEN
+            node_return_code := data1;
+        ENDIF
+        
         IF error_code = 0 THEN
             IF Present(debug) AND debug THEN
-                ErrWrite \I, "JobStatus", NumToStr(data1, 0);
+                ErrWrite \I, "JobStatus", NumToStr(data2, 0);
             ENDIF
             
-            RETURN data1;  ! Return the job status integer
+            RETURN data2;  ! Return the job status integer from data_2 per spec
         ELSE
             ErrWrite \W, "GetJobStatusError", "Job " + NumToStr(job_id, 0) + " failed: " + get_error_string(error_code);
             RETURN JOB_STATUS_UNKNOWN;
