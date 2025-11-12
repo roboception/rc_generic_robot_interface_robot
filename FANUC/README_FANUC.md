@@ -77,10 +77,10 @@ Optional example programs (load .ls files):
 
 2. **Network Configuration**
    - Ensure robot controller can reach the vision system
-   - Default connection: IP of vision system, Port 10000
+   - Default connection: IP of vision system, Port 7100
    - Configure socket C3 for TCP communication
    - You must configure socket `C3:` host IP to your GRI server (e.g., `192.168.56.2`)
-   - Note: the background task sets `$HOSTC_CFG[3].$SERVER_PORT` to `10000` automatically (socket `C3:`)
+   - Note: the background task sets `$HOSTC_CFG[3].$SERVER_PORT` to `7100` automatically (socket `C3:`)
 
 3. **Example Programs**
    - `GRI_EXAMPLE_PICK_AND_PLACE.LS`: Open and run to see a complete cycle. It starts communication, triggers a sync job, checks `R[150]`, uses `PR[53]` as the grasp pose, computes a simple pre‑grasp (`PR[54]` = `PR[53]` with Z offset), moves, and shuts down communication.

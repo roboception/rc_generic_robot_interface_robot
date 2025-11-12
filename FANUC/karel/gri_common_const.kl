@@ -3,7 +3,7 @@
 
 CONST
   -- Communication Settings
-  SERVER_PORT = 10000       -- Port for the GRI server
+  SERVER_PORT = 7100       -- Port for the GRI server
   CLIENT_TAG = 'C3:'        -- KAREL client tag (e.g., C1:, C3:)
   TIMEOUT_VALUE_MS = 5000   -- Socket timeout in milliseconds
   TIMEOUT_ERR = 2031        -- KAREL IO_STATUS code for timeout
