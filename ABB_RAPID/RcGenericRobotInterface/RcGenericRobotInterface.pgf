@@ -3,7 +3,8 @@
 	<Module>RcConfig.modx</Module>
 	<Module>RcProtocolDefs.modx</Module>
 	<Module>RcSocketCommunication.modx</Module>
-	<Module>RcExampleMainModule.modx</Module>
 	<Module>RcDebug.modx</Module>
 	<Module>RcInterfaceFunctions.modx</Module>
+	<Module>ExampleMainModule.modx</Module>
+	<Module>HandEyeCalibrationExample.modx</Module>
 </Program>

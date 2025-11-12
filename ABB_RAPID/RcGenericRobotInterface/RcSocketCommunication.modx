@@ -47,10 +47,10 @@ MODULE RcSocketCommunication(READONLY)
             RETURN FALSE;
         ENDIF
         
-        ! Send request (50 bytes)
+        ! Send request (REQUEST_MESSAGE_LENGTH bytes)
         SocketSend client_socket \RawData:=request;
         
-        ! Clear and receive response (expect 55 bytes)
+        ! Clear and receive response (expect RESPONSE_MESSAGE_LENGTH bytes)
         ClearRawBytes response;
         SocketReceive client_socket \RawData:=response \Time:=SERVER_TIMEOUT;
         
@@ -80,7 +80,7 @@ MODULE RcSocketCommunication(READONLY)
             RETURN FALSE;
     ENDFUNC
     
-    ! Message Packing Function
+    ! Message Packing Function (Protocol V1 - 54 bytes total)
     PROC request_pack(VAR rawbytes request,
                      num action,
                      num job_id,
@@ -89,62 +89,79 @@ MODULE RcSocketCommunication(READONLY)
                      \num data2,
                      \num data3,
                      \num data4)
+        VAR dnum ix; VAR dnum iy; VAR dnum iz; VAR dnum iq1; VAR dnum iq2; VAR dnum iq3; VAR dnum iq4;
+        VAR num i;
         
         ClearRawBytes request;
         
-        ! Pack header
-        PackRawBytes MAGIC_NUMBER, request, 1, \IntX:=SINT;
-        PackRawBytes PROTOCOL_VERSION, request, 2, \IntX:=SINT;
-        PackRawBytes REQUEST_MESSAGE_LENGTH, request, 3, \IntX:=SINT;
-        PackRawBytes POSE_FORMAT_MM_QUATERNION, request, 4, \IntX:=SINT;
-        PackRawBytes action, request, 5, \IntX:=SINT;
-        PackRawBytes job_id, request, 6, \IntX:=SINT;
+        ! Header (bytes 1..8) - write magic as 4 single bytes to avoid any endianness ambiguity
+        PackRawBytes 71,  request, 1, \IntX:=SINT;   ! 'G' (0x47)
+        PackRawBytes 82,  request, 2, \IntX:=SINT;   ! 'R' (0x52)
+        PackRawBytes 73,  request, 3, \IntX:=SINT;   ! 'I' (0x49)
+        PackRawBytes 0,   request, 4, \IntX:=SINT;   ! '\0' (0x00)
+        PackRawBytes PROTOCOL_VERSION, request, 5, \IntX:=SINT;          ! 1 byte
+        PackRawBytes REQUEST_MESSAGE_LENGTH, request, 6, \IntX:=SINT;    ! 1 byte
+        ! Use QUAT_WXYZ pose format (value 1 per protocol) for ABB
+        PackRawBytes POSE_FORMAT_QUAT_WXYZ, request, 7, \IntX:=SINT;  ! 1 byte (QUAT_WXYZ)
+        PackRawBytes action, request, 8, \IntX:=SINT;                    ! 1 byte
         
-        ! Pack position if provided
+        ! job_id uint16 little-endian at bytes 9..10
+        PackRawBytes job_id, request, 9, \IntX:=2;
+        
+        ! Pack pose (int32 scaled by 1e6) if provided
         IF Present(current_pos) THEN
-            PackRawBytes current_pos.trans.x, request, 7, \Float4;
-            PackRawBytes current_pos.trans.y, request, 11, \Float4;
-            PackRawBytes current_pos.trans.z, request, 15, \Float4;
-            PackRawBytes current_pos.rot.q1, request, 19, \Float4;
-            PackRawBytes current_pos.rot.q2, request, 23, \Float4;
-            PackRawBytes current_pos.rot.q3, request, 27, \Float4;
-            PackRawBytes current_pos.rot.q4, request, 31, \Float4;
+            ix := NumToDnum(Round(current_pos.trans.x * 1000000));
+            iy := NumToDnum(Round(current_pos.trans.y * 1000000));
+            iz := NumToDnum(Round(current_pos.trans.z * 1000000));
+            ! QUAT_WXYZ (format 1): rot_1=W, rot_2=X, rot_3=Y, rot_4=Z
+            ! ABB robtarget.rot: q1=W, q2=X, q3=Y, q4=Z
+            iq1 := NumToDnum(Round(current_pos.rot.q1 * 1000000));    ! W -> rot_1
+            iq2 := NumToDnum(Round(current_pos.rot.q2 * 1000000));    ! X -> rot_2
+            iq3 := NumToDnum(Round(current_pos.rot.q3 * 1000000));    ! Y -> rot_3
+            iq4 := NumToDnum(Round(current_pos.rot.q4 * 1000000));    ! Z -> rot_4
+            PackRawBytes ix,  request, 11, \IntX:=4;    ! pos_x at bytes 11..14
+            PackRawBytes iy,  request, 15, \IntX:=4;    ! pos_y at bytes 15..18
+            PackRawBytes iz,  request, 19, \IntX:=4;    ! pos_z at bytes 19..22
+            PackRawBytes iq1, request, 23, \IntX:=4;    ! rot_1 at bytes 23..26 (W)
+            PackRawBytes iq2, request, 27, \IntX:=4;    ! rot_2 at bytes 27..30 (X)
+            PackRawBytes iq3, request, 31, \IntX:=4;    ! rot_3 at bytes 31..34 (Y)
+            PackRawBytes iq4, request, 35, \IntX:=4;    ! rot_4 at bytes 35..38 (Z)
         ELSE
-            FOR i FROM 7 TO 31 STEP 4 DO
-                PackRawBytes 0, request, i, \Float4;
+            FOR i FROM 11 TO 35 STEP 4 DO
+                PackRawBytes 0, request, i, \IntX:=DINT;
             ENDFOR
         ENDIF
         
-        ! Pack additional data if provided
+        ! Additional data fields data_1..data_4 (int32)
         IF Present(data1) THEN
-            PackRawBytes data1, request, 35, \IntX:=UDINT;
+            PackRawBytes data1, request, 39, \IntX:=DINT;
         ELSE
-            PackRawBytes 0, request, 35, \IntX:=UDINT;
+            PackRawBytes 0, request, 39, \IntX:=DINT;
         ENDIF
         
         IF Present(data2) THEN
-            PackRawBytes data2, request, 39, \IntX:=UDINT;
+            PackRawBytes data2, request, 43, \IntX:=DINT;
         ELSE
-            PackRawBytes 0, request, 39, \IntX:=UDINT;
+            PackRawBytes 0, request, 43, \IntX:=DINT;
         ENDIF
         
         IF Present(data3) THEN
-            PackRawBytes data3, request, 43, \IntX:=UDINT;
+            PackRawBytes data3, request, 47, \IntX:=DINT;
         ELSE
-            PackRawBytes 0, request, 43, \IntX:=UDINT;
+            PackRawBytes 0, request, 47, \IntX:=DINT;
         ENDIF
         
         IF Present(data4) THEN
-            PackRawBytes data4, request, 47, \IntX:=UDINT;
+            PackRawBytes data4, request, 51, \IntX:=DINT;
         ELSE
-            PackRawBytes 0, request, 47, \IntX:=UDINT;
+            PackRawBytes 0, request, 51, \IntX:=DINT;
         ENDIF
         
         ERROR
             ErrWrite \W, "PackError", "Error packing request: " + NumToStr(ERRNO,0);
     ENDPROC
     
-    ! Message Unpacking Function 
+    ! Message Unpacking Function (Protocol V1 - 80 bytes total)
     FUNC bool response_unpack(VAR rawbytes response,
                             VAR num magic,
                             VAR num protocol_ver,
@@ -158,38 +175,60 @@ MODULE RcSocketCommunication(READONLY)
                             VAR num data2,
                             VAR num data3,
                             VAR num data4,
-                            VAR num data5)
+                            VAR num data5,
+                            \VAR num data6,
+                            \VAR num data7,
+                            \VAR num data8,
+                            \VAR num data9,
+                            \VAR num data10)
+        VAR num ix; VAR num iy; VAR num iz; VAR num iq1; VAR num iq2; VAR num iq3; VAR num iq4;
         
-        ! Header (bytes 0-6)
-        UnpackRawBytes response, 1, magic, \IntX:=SINT;
-        UnpackRawBytes response, 2, protocol_ver, \IntX:=SINT;
-        UnpackRawBytes response, 3, message_length, \IntX:=SINT;
-        UnpackRawBytes response, 4, pose_format, \IntX:=SINT;
-        UnpackRawBytes response, 5, action, \IntX:=SINT;
-        UnpackRawBytes response, 6, job_id, \IntX:=SINT;
-        UnpackRawBytes response, 7, error_code, \IntX:=SINT;
+        ! Header (bytes 1-8)
+        UnpackRawBytes response, 1, magic, \IntX:=UDINT;         ! 4 bytes
+        UnpackRawBytes response, 5, protocol_ver, \IntX:=SINT;   ! 1 byte
+        UnpackRawBytes response, 6, message_length, \IntX:=SINT; ! 1 byte
+        UnpackRawBytes response, 7, pose_format, \IntX:=SINT;    ! 1 byte
+        UnpackRawBytes response, 8, action, \IntX:=SINT;         ! 1 byte
         
-        ! Position data (bytes 7-18)
-        UnpackRawBytes response, 8, pose.trans.x, \Float4;
-        UnpackRawBytes response, 12, pose.trans.y, \Float4;
-        UnpackRawBytes response, 16, pose.trans.z, \Float4;
+        ! job_id (uint16) and error_code (int16)
+        UnpackRawBytes response, 9, job_id, \IntX:=2;         ! 2 bytes
+        UnpackRawBytes response, 11, error_code, \IntX:=INT;     ! 2 bytes signed
         
-        ! Rotation data (bytes 19-34)
-        UnpackRawBytes response, 20, pose.rot.q1, \Float4;
-        UnpackRawBytes response, 24, pose.rot.q2, \Float4;
-        UnpackRawBytes response, 28, pose.rot.q3, \Float4;
-        UnpackRawBytes response, 32, pose.rot.q4, \Float4;
+        ! Position data (int32 scaled by 1e6)
+        UnpackRawBytes response, 13, ix, \IntX:=DINT;
+        UnpackRawBytes response, 17, iy, \IntX:=DINT;
+        UnpackRawBytes response, 21, iz, \IntX:=DINT;
+        pose.trans.x := ix / 1000000.0;
+        pose.trans.y := iy / 1000000.0;
+        pose.trans.z := iz / 1000000.0;
+        
+        ! Rotation data (quaternion WXYZ format 1)
+        ! QUAT_WXYZ: rot_1=W, rot_2=X, rot_3=Y, rot_4=Z
+        ! ABB robtarget.rot: q1=W, q2=X, q3=Y, q4=Z
+        UnpackRawBytes response, 25, iq1, \IntX:=DINT;  ! rot_1 = W
+        UnpackRawBytes response, 29, iq2, \IntX:=DINT;  ! rot_2 = X
+        UnpackRawBytes response, 33, iq3, \IntX:=DINT;  ! rot_3 = Y
+        UnpackRawBytes response, 37, iq4, \IntX:=DINT;  ! rot_4 = Z
+        pose.rot.q1 := iq1 / 1000000.0;  ! W
+        pose.rot.q2 := iq2 / 1000000.0;  ! X
+        pose.rot.q3 := iq3 / 1000000.0;  ! Y
+        pose.rot.q4 := iq4 / 1000000.0;  ! Z
         
         ! Set default values for unused robtarget components
         pose.robconf := [0,0,0,0];
         pose.extax := [0,0,0,0,0,0];
         
-        ! Additional data fields (bytes 35-54)
-        UnpackRawBytes response, 36, data1, \IntX:=UDINT;
-        UnpackRawBytes response, 40, data2, \IntX:=UDINT;
-        UnpackRawBytes response, 44, data3, \IntX:=UDINT;
-        UnpackRawBytes response, 48, data4, \IntX:=UDINT;
-        UnpackRawBytes response, 52, data5, \IntX:=UDINT;
+        ! Additional data fields (int32) data_1..data_10
+        UnpackRawBytes response, 41, data1, \IntX:=DINT;
+        UnpackRawBytes response, 45, data2, \IntX:=DINT;
+        UnpackRawBytes response, 49, data3, \IntX:=DINT;
+        UnpackRawBytes response, 53, data4, \IntX:=DINT;
+        UnpackRawBytes response, 57, data5, \IntX:=DINT;
+        IF Present(data6) THEN UnpackRawBytes response, 61, data6, \IntX:=DINT; ENDIF
+        IF Present(data7) THEN UnpackRawBytes response, 65, data7, \IntX:=DINT; ENDIF
+        IF Present(data8) THEN UnpackRawBytes response, 69, data8, \IntX:=DINT; ENDIF
+        IF Present(data9) THEN UnpackRawBytes response, 73, data9, \IntX:=DINT; ENDIF
+        IF Present(data10) THEN UnpackRawBytes response, 77, data10, \IntX:=DINT; ENDIF
         
         RETURN TRUE;
         

@@ -16,68 +16,83 @@ MODULE RcDebug(READONLY)
     ENDPROC
     
    PROC print_server_response(VAR rawbytes data)
-       VAR num byte;
        VAR string bytes_str;
        VAR num value;
-       VAR num float_val;
+       VAR num iv;
+       VAR num fv;
        
-       ! Header values
-       UnpackRawBytes data, 1, value, \IntX:=USINT;
+       ! Header values (Protocol V1)
+       UnpackRawBytes data, 1, value, \IntX:=UDINT;   ! magic uint32
        ErrWrite \I, "Magic Number", NumToStr(value,0);
        
-       UnpackRawBytes data, 2, value, \IntX:=USINT;
+       UnpackRawBytes data, 5, value, \IntX:=USINT;   ! version
        ErrWrite \I, "Protocol Version", NumToStr(value,0);
        
-       UnpackRawBytes data, 3, value, \IntX:=USINT;
+       UnpackRawBytes data, 6, value, \IntX:=USINT;   ! message_length
        ErrWrite \I, "Message Length", NumToStr(value,0);
        
-       UnpackRawBytes data, 4, value, \IntX:=USINT;
+       UnpackRawBytes data, 7, value, \IntX:=USINT;   ! pose_format
        ErrWrite \I, "Pose Format", NumToStr(value,0);
        
-       UnpackRawBytes data, 5, value, \IntX:=USINT;
+       UnpackRawBytes data, 8, value, \IntX:=USINT;   ! action
        ErrWrite \I, "Action", NumToStr(value,0);
        
-       UnpackRawBytes data, 6, value, \IntX:=USINT;
+       UnpackRawBytes data, 9, value, \IntX:=2;    ! job_id uint16
        ErrWrite \I, "Job ID", NumToStr(value,0);
        
-       UnpackRawBytes data, 7, value, \IntX:=USINT;
+       UnpackRawBytes data, 11, value, \IntX:=INT;    ! error_code int16 signed
        ErrWrite \I, "Error Code", NumToStr(value,0);
        
-       ! Position data
-       UnpackRawBytes data, 8, float_val, \Float4;
-       bytes_str := "[" + NumToStr(float_val,3) + ",";
-       UnpackRawBytes data, 12, float_val, \Float4;
-       bytes_str := bytes_str + NumToStr(float_val,3) + ",";
-       UnpackRawBytes data, 16, float_val, \Float4;
-       bytes_str := bytes_str + NumToStr(float_val,3) + "]";
+       ! Position data (int32 scaled by 1e6)
+       UnpackRawBytes data, 13, iv, \IntX:=DINT; fv := iv / 1000000.0;
+       bytes_str := "[" + NumToStr(fv,3) + ",";
+       UnpackRawBytes data, 17, iv, \IntX:=DINT; fv := iv / 1000000.0;
+       bytes_str := bytes_str + NumToStr(fv,3) + ",";
+       UnpackRawBytes data, 21, iv, \IntX:=DINT; fv := iv / 1000000.0;
+       bytes_str := bytes_str + NumToStr(fv,3) + "]";
        ErrWrite \I, "Position [x,y,z]", bytes_str;
        
-       ! Rotation data
-       UnpackRawBytes data, 20, float_val, \Float4;
-       bytes_str := "[" + NumToStr(float_val,3) + ",";
-       UnpackRawBytes data, 24, float_val, \Float4;
-       bytes_str := bytes_str + NumToStr(float_val,3) + ",";
-       UnpackRawBytes data, 28, float_val, \Float4;
-       bytes_str := bytes_str + NumToStr(float_val,3) + ",";
-       UnpackRawBytes data, 32, float_val, \Float4;
-       bytes_str := bytes_str + NumToStr(float_val,3) + "]";
+       ! Rotation data (quaternion XYZW, int32 scaled by 1e6)
+       UnpackRawBytes data, 25, iv, \IntX:=DINT; fv := iv / 1000000.0;
+       bytes_str := "[" + NumToStr(fv,3) + ",";
+       UnpackRawBytes data, 29, iv, \IntX:=DINT; fv := iv / 1000000.0;
+       bytes_str := bytes_str + NumToStr(fv,3) + ",";
+       UnpackRawBytes data, 33, iv, \IntX:=DINT; fv := iv / 1000000.0;
+       bytes_str := bytes_str + NumToStr(fv,3) + ",";
+       UnpackRawBytes data, 37, iv, \IntX:=DINT; fv := iv / 1000000.0;
+       bytes_str := bytes_str + NumToStr(fv,3) + "]";
        ErrWrite \I, "Rotation [q1,q2,q3,q4]", bytes_str;
        
-       ! Additional data
-       UnpackRawBytes data, 36, value, \IntX:=UDINT;
+       ! Additional data fields (int32)
+       UnpackRawBytes data, 41, value, \IntX:=DINT;
        ErrWrite \I, "Data Field 1", NumToStr(value,0);
        
-       UnpackRawBytes data, 40, value, \IntX:=UDINT;
+       UnpackRawBytes data, 45, value, \IntX:=DINT;
        ErrWrite \I, "Data Field 2", NumToStr(value,0);
        
-       UnpackRawBytes data, 44, value, \IntX:=UDINT;
+       UnpackRawBytes data, 49, value, \IntX:=DINT;
        ErrWrite \I, "Data Field 3", NumToStr(value,0);
        
-       UnpackRawBytes data, 48, value, \IntX:=UDINT;
+       UnpackRawBytes data, 53, value, \IntX:=DINT;
        ErrWrite \I, "Data Field 4", NumToStr(value,0);
        
-       UnpackRawBytes data, 52, value, \IntX:=UDINT;
+       UnpackRawBytes data, 57, value, \IntX:=DINT;
        ErrWrite \I, "Data Field 5", NumToStr(value,0);
+       
+       UnpackRawBytes data, 61, value, \IntX:=DINT;
+       ErrWrite \I, "Data Field 6", NumToStr(value,0);
+       
+       UnpackRawBytes data, 65, value, \IntX:=DINT;
+       ErrWrite \I, "Data Field 7", NumToStr(value,0);
+       
+       UnpackRawBytes data, 69, value, \IntX:=DINT;
+       ErrWrite \I, "Data Field 8", NumToStr(value,0);
+       
+       UnpackRawBytes data, 73, value, \IntX:=DINT;
+       ErrWrite \I, "Data Field 9", NumToStr(value,0);
+       
+       UnpackRawBytes data, 77, value, \IntX:=DINT;
+       ErrWrite \I, "Data Field 10", NumToStr(value,0);
        
    ERROR
        ErrWrite \W, "Debug Error", "Error printing message: " + NumToStr(ERRNO,0);
