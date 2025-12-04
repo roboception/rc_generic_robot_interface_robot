@@ -1,10 +1,10 @@
-# Roboception Generic Robot Interface
+# Generic Robot Interface
 ## Robot Side Implementations
 
-This repository contains the official robot-side implementations that demonstrate how to integrate various industrial robot platforms with Roboception's Generic Robot Interface (GRI). The GRI is an integration layer that bridges the REST-API v2 and provides a standardized way to communicate with software modules using simple TCP socket communication on port 7100.
+This repository contains the official robot-side implementations that demonstrate how to integrate various industrial robot platforms with the Generic Robot Interface (GRI). The GRI is part of the firmware of rc_cube and rc_visard devices and bridges their REST-API with a standardized TCP socket interface, enabling robot controllers to communicate with vision modules using simple binary messages over TCP/IP.
 
 **Why is this important?**  
-Integrating a REST-API directly into robot controllers poses significant challenges due to diverse programming environments and limited REST support on many platforms. To address this, the GRI consolidates all REST interactions within the Roboception firmware and employs a fixed-length binary protocol over TCP socket communication, ensuring that interfacing with the vision modules is both standardized and straightforward on any robot supporting TCP/IP.
+Integrating REST-API directly into robot controllers poses significant challenges due to diverse programming environments and limited REST support on many platforms. The GRI consolidates these interactions and employs a fixed-length binary protocol over TCP, ensuring that vision module communication is both standardized and straightforward on any robot supporting TCP/IP.
 
 ## Available Implementations
 
@@ -34,7 +34,7 @@ Complete Python reference implementation demonstrating the GRI protocol.
 
 ## System Architecture Overview
 
-The GRI consists of a TCP socket server integrated into the Roboception firmware that handles all REST-API interactions and communicates with robot controllers using a fixed-length binary protocol. Robot-side implementations connect to this server and exchange standardized messages to control vision workflows.
+The GRI consists of a TCP socket server integrated into the firmware that handles all REST-API interactions and communicates with robot controllers using a fixed-length binary protocol. Robot-side implementations connect to this server and exchange standardized messages to control vision workflows.
 
 For detailed architecture information, refer to the [official GRI documentation](https://doc.rc-cube.com/latest/en/gri.html).
 
@@ -46,7 +46,7 @@ Developers can extend support for new robot platforms by:
 
 ## Requirements
 
-- A Roboception rc_visard or rc_cube with Generic Robot Interface license enabled
+- A vision sensor (rc_visard or rc_cube) with an enabled Generic Robot Interface license
 - A robot controller with TCP/IP support and the ability to pack robot poses into a binary message and to parse binary messages into robot poses
 - The appropriate development environment for your robot's programming language
 
@@ -80,7 +80,6 @@ For complete technical specifications, field layouts, and implementation details
 **FANUC KAREL/TP Integration**
 - Uses EULER_ZYX_B_DEG pose format (format code 26)
 - Rotation components packed as [R, P, W] in degrees
-- Job status retrieved from data_2 field
 - See `FANUC/README_FANUC.md` for detailed usage instructions
 
 **Python Reference Implementation**
@@ -90,7 +89,7 @@ For complete technical specifications, field layouts, and implementation details
 
 ### Implementation Guidelines
 
-When implementing robot-side communication, connect to port 7100, use Protocol V1 with the fixed-length binary protocol, and implement proper timeout and error handling. Build the 8-byte header with magic number "GRI\0", protocol version 1, message length, pose format, and action. Pack pose data using the robot's assigned format, scale all pose components by 1,000,000 before transmission (positions in millimeters), and use little-endian byte order for all multi-byte values.
+When implementing robot-side communication, connect to port 7100 and implement proper timeout and error handling. Follow the protocol specifications outlined above, ensuring correct message construction, pose data packing, and response parsing. First, find out your robot controller's rotation format using the [Pose Format Reference](https://doc.rc-cube.com/latest/en/gri.html#pose-formats).
 
-For new robot platform integrations, study the existing ABB, FANUC, and Python implementations as reference examples, and always validate your implementation against the [official protocol documentation](https://doc.rc-cube.com/latest/en/gri.html).
+For new robot platform integrations, stick to the Python reference implementation as the primary reference example, and study the existing ABB and FANUC implementations for platform-specific patterns. Always validate your implementation against the [official protocol documentation](https://doc.rc-cube.com/latest/en/gri.html).
 
