@@ -23,7 +23,11 @@ Complete KAREL/TP implementation for FANUC robot controllers.
 - Background processing with KAREL programs
 
 ### Techman Robots
-TMScript implementation for Techman robot controllers.
+Complete TMflow Component and TMScript implementation for Techman robot controllers.  
+[View Techman Documentation](Techman/README_Techman.md)
+- Provided as a reusable TMflow Component for easy Drag & Drop integration
+- Handles TCP/IP communication and binary protocol parsing automatically
+- Includes full source code for advanced TMScript customization
 
 ### Python Reference Implementation
 Complete Python reference implementation demonstrating the GRI protocol.  
@@ -82,6 +86,12 @@ For complete technical specifications, field layouts, and implementation details
 - Rotation components packed as [R, P, W] in degrees
 - See `FANUC/README_FANUC.md` for detailed usage instructions
 
+
+**Techman Integration**
+- Uses EULER_ZYX_B_DEG pose format (format code 26)
+- Rotation components packed as [RX, RY, RZ] in degrees
+- See `Techman/README_Techman.md` for detailed usage instructions
+
 **Python Reference Implementation**
 - Reference implementation demonstrating all GRI protocol aspects
 - Useful for understanding protocol structure and testing before robot deployment
@@ -89,7 +99,8 @@ For complete technical specifications, field layouts, and implementation details
 
 ### Implementation Guidelines
 
-When implementing robot-side communication, connect to port 7100 and implement proper timeout and error handling. Follow the protocol specifications outlined above, ensuring correct message construction, pose data packing, and response parsing. First, find out your robot controller's rotation format using the [Pose Format Reference](https://doc.rc-cube.com/latest/en/gri.html#pose-formats).
+When implementing robot-side communication, connect to port 7100 and implement proper timeout and error handling. For synchronous operations, it is recommended to configure the socket read timeout to at least 75 seconds. This ensures the client waits longer than the server's internal processing limit (70s) to receive a proper error response (e.g., `PROCESSING_TIMEOUT`) instead of triggering a local timeout.
+
+Follow the protocol specifications outlined above, ensuring correct message construction, pose data packing, and response parsing. First, find out your robot controller's rotation format using the [Pose Format Reference](https://doc.rc-cube.com/latest/en/gri.html#pose-formats).
 
 For new robot platform integrations, stick to the Python reference implementation as the primary reference example, and study the existing ABB and FANUC implementations for platform-specific patterns. Always validate your implementation against the [official protocol documentation](https://doc.rc-cube.com/latest/en/gri.html).
-
