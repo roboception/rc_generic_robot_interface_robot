@@ -79,7 +79,7 @@ Optional example programs (load .ls files):
    - Ensure robot controller can reach the vision system
    - Default connection: IP of vision system, Port 7100
    - Configure socket C3 for TCP communication
-   - You must configure socket `C3:` host IP to your GRI server (e.g., `192.168.56.2`)
+   - You must configure socket `C3:` host IP to your GRI server (e.g., `1.2.3.4`)
    - Note: the background task sets `$HOSTC_CFG[3].$SERVER_PORT` to `7100` automatically (socket `C3:`)
 
 3. **Example Programs**
