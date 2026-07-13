@@ -1,0 +1,634 @@
+&ACCESS RVP
+&REL 1
+&PARAM EDITMASK = *
+DEF GRI_CLIENT()
+   ; GRI_CLIENT.src — GRI TCP Client library (KSS 8.x - 9.x / iiQKA.OS2)
+   ; All logic in GLOBAL subprograms below. Entry point is empty.
+END
+
+; ==============================================================================
+; GRI_Init — call once before GRI_Connect
+; ==============================================================================
+GLOBAL DEF GRI_Init()
+   GRI_CfgTimeout    = GRI_TIMEOUT_DEFAULT
+   GRI_CfgPoseFormat = GRI_PF_KUKA
+   GRI_Handle        = 0
+   GRI_Connected     = FALSE
+END
+
+; ==============================================================================
+; GRI_Connect — opens channel, returns TRUE on success
+; ==============================================================================
+GLOBAL DEFFCT BOOL GRI_Connect()
+   DECL INT ret
+   IF GRI_Connected THEN
+      GRI_Disconnect()
+   ENDIF
+   
+   ret = EKI_Load("GRI_CLIENT")
+   IF ret <> 0 THEN
+      GRI_Connected = FALSE
+      RETURN FALSE
+   ENDIF
+
+   ret = EKI_Open("GRI_CLIENT")
+   IF ret <> 0 THEN
+      ret = EKI_Unload("GRI_CLIENT")
+      GRI_Connected = FALSE
+      RETURN FALSE
+   ENDIF
+   
+   GRI_Connected = TRUE
+   RETURN TRUE
+ENDFCT
+
+; ==============================================================================
+; GRI_Disconnect — closes channel
+; ==============================================================================
+GLOBAL DEF GRI_Disconnect()
+   DECL INT ret
+   IF NOT GRI_Connected THEN
+      RETURN
+   ENDIF
+   
+   ret = EKI_Close("GRI_CLIENT")
+   ret = EKI_Unload("GRI_CLIENT")
+   GRI_Connected = FALSE
+END
+
+; ==============================================================================
+; GRI_ResetResults — clears all result globals
+; ==============================================================================
+GLOBAL DEF GRI_ResetResults()
+   GRI_LastPose = $NULLFRAME
+   
+   GRI_LastError   = 0
+   GRI_LastAction  = 0
+   GRI_LastJobId   = 0
+   GRI_LastData1   = 0
+   GRI_LastData2   = 0
+   GRI_LastData3   = 0
+   GRI_LastData4   = 0
+   GRI_LastData5   = 0
+   GRI_LastData6   = 0
+   GRI_LastData7   = 0
+   GRI_LastData8   = 0
+   GRI_LastData9   = 0
+   GRI_LastData10  = 0
+END
+
+; ==============================================================================
+; GRI_SendAction — packs/sends/receives binary protocol frame
+; ==============================================================================
+GLOBAL DEFFCT BOOL GRI_SendAction(Action :IN, JobId :IN, Pose :IN, D1 :IN, D2 :IN, D3 :IN, D4 :IN)
+   DECL INT     Action, JobId, D1, D2, D3, D4
+   DECL FRAME   Pose
+   DECL INT     Offset, Sv, Re
+   
+   ; Local variables for EKI E/A
+   DECL CHAR    reqHeader[8]
+   DECL CHAR    reqJobIdBytes[2]
+   DECL CHAR    tempBytes[4]
+   DECL INT     reqPosX, reqPosY, reqPosZ, reqRot1, reqRot2, reqRot3, reqRot4
+   
+   DECL CHAR    resHeader[8]
+   DECL CHAR    resJobIdBytes[2]
+   DECL CHAR    resErrorCodeBytes[2]
+   DECL INT     resPosX, resPosY, resPosZ
+   DECL INT     resRot1, resRot2, resRot3, resRot4
+   DECL INT     resData1, resData2, resData3, resData4, resData5, resData6, resData7, resData8, resData9, resData10
+   DECL INT     byte1, byte2
+   
+   DECL INT     i, msgId, ret
+   
+   GRI_ResetResults()
+   
+   IF NOT GRI_Connected THEN
+      RETURN FALSE
+   ENDIF
+
+   ; Zero-out request buffer
+   FOR i = 1 TO 54 STEP 1
+      GRI_ReqBuf[i] = 0
+   ENDFOR
+   
+   ; Zero-out response buffer
+   FOR i = 1 TO 80 STEP 1
+      GRI_RspBuf[i] = 0
+   ENDFOR
+   
+   ; Setup request header
+   reqHeader[1] = GRI_MAGIC_1
+   reqHeader[2] = GRI_MAGIC_2
+   reqHeader[3] = GRI_MAGIC_3
+   reqHeader[4] = GRI_MAGIC_4
+   reqHeader[5] = GRI_PROTO_VER
+   reqHeader[6] = GRI_REQ_LEN
+   reqHeader[7] = GRI_CfgPoseFormat
+   reqHeader[8] = Action
+   
+   ; Pack JobId (uint16 -> 2 bytes)
+   FOR i = 1 TO 4
+      tempBytes[i] = 0
+   ENDFOR
+   Offset = 0
+   CAST_TO(tempBytes[], Offset, JobId)
+   reqJobIdBytes[1] = tempBytes[1]
+   reqJobIdBytes[2] = tempBytes[2]
+   
+   ; Round and scale coordinates
+   Sv = Pose.X * GRI_SCALE + 0.5
+   reqPosX = Sv
+   Sv = Pose.Y * GRI_SCALE + 0.5
+   reqPosY = Sv
+   Sv = Pose.Z * GRI_SCALE + 0.5
+   reqPosZ = Sv
+   Sv = Pose.A * GRI_SCALE + 0.5
+   reqRot1 = Sv
+   Sv = Pose.B * GRI_SCALE + 0.5
+   reqRot2 = Sv
+   Sv = Pose.C * GRI_SCALE + 0.5
+   reqRot3 = Sv
+   reqRot4 = 0
+   
+   ; Pack everything into GRI_ReqBuf
+   Offset = 0
+   CAST_TO(GRI_ReqBuf[], Offset, reqHeader[1], reqHeader[2], reqHeader[3], reqHeader[4])
+   CAST_TO(GRI_ReqBuf[], Offset, reqHeader[5], reqHeader[6], reqHeader[7], reqHeader[8])
+   CAST_TO(GRI_ReqBuf[], Offset, reqJobIdBytes[1], reqJobIdBytes[2])
+   CAST_TO(GRI_ReqBuf[], Offset, reqPosX, reqPosY, reqPosZ)
+   CAST_TO(GRI_ReqBuf[], Offset, reqRot1, reqRot2, reqRot3, reqRot4)
+   CAST_TO(GRI_ReqBuf[], Offset, D1, D2, D3, D4)
+   
+   ret = EKI_SetString("GRI_CLIENT", "TxBlob", GRI_ReqBuf[], 54)
+   IF ret <> 0 THEN
+      GRI_LastError = GRI_ERR_API_UNREACH
+      GRI_LogResponse()
+      RETURN FALSE
+   ENDIF
+ 
+   ret = EKI_Send("GRI_CLIENT", 0)
+   IF ret <> 0 THEN
+      GRI_LastError = GRI_ERR_API_UNREACH
+      GRI_LogResponse()
+      RETURN FALSE
+   ENDIF
+   
+   ; Poll for response with timeout using $TIMER[1]
+   $TIMER_STOP[1] = TRUE
+   $TIMER[1] = 0
+   $TIMER_STOP[1] = FALSE
+   
+   REPEAT
+      ret = EKI_ReadNext("GRI_CLIENT", msgId)
+      
+      IF ($TIMER[1] > (GRI_CfgTimeout * 1000.0)) THEN
+         $TIMER_STOP[1] = TRUE
+         GRI_LastError = GRI_ERR_PROC_TIMEOUT
+         GRI_LogResponse()
+         RETURN FALSE
+      ENDIF
+   UNTIL (ret == 0)
+   
+   $TIMER_STOP[1] = TRUE
+   
+   ; Read the response blob
+   ret = EKI_GetString("GRI_CLIENT", "RxBlob", GRI_RspBuf[])
+   IF ret <> 0 THEN
+      GRI_LastError = GRI_ERR_API_RESPONSE
+      GRI_LogResponse()
+      RETURN FALSE
+   ENDIF
+   
+   ; Deserialize fields
+   Offset = 0
+   ; Unpack header (8 bytes)
+   CAST_FROM(GRI_RspBuf[], Offset, resHeader[1], resHeader[2], resHeader[3], resHeader[4])
+   CAST_FROM(GRI_RspBuf[], Offset, resHeader[5], resHeader[6], resHeader[7], resHeader[8])
+   
+   ; Validate header prefix ("GRI\0")
+   IF (resHeader[1] <> GRI_MAGIC_1) OR (resHeader[2] <> GRI_MAGIC_2) OR (resHeader[3] <> GRI_MAGIC_3) OR (resHeader[4] <> GRI_MAGIC_4) THEN
+      GRI_LastError = GRI_ERR_WRONG_PROTO
+      GRI_LogResponse()
+      RETURN FALSE
+   ENDIF
+     
+    ; Validate version byte (resHeader[5])
+    IF (resHeader[5] <> GRI_PROTO_VER) THEN
+       GRI_LastError = GRI_ERR_UNK_PROTO_VER
+       GRI_LogResponse()
+       RETURN FALSE
+    ENDIF
+
+    ; Validate response message length (resHeader[6] == 80)
+    IF (resHeader[6] <> GRI_RSP_LEN) THEN
+       GRI_LastError = GRI_ERR_INV_REQ_LEN
+       GRI_LogResponse()
+       RETURN FALSE
+    ENDIF
+    
+   ; Unpack job_id (2 bytes)
+   CAST_FROM(GRI_RspBuf[], Offset, resJobIdBytes[1], resJobIdBytes[2])
+   
+   ; Unpack error_code (2 bytes)
+   CAST_FROM(GRI_RspBuf[], Offset, resErrorCodeBytes[1], resErrorCodeBytes[2])
+   
+   ; Unpack remaining 17 integers (68 bytes)
+   CAST_FROM(GRI_RspBuf[], Offset, resPosX, resPosY, resPosZ)
+   CAST_FROM(GRI_RspBuf[], Offset, resRot1, resRot2, resRot3, resRot4)
+   CAST_FROM(GRI_RspBuf[], Offset, resData1, resData2, resData3, resData4)
+   CAST_FROM(GRI_RspBuf[], Offset, resData5, resData6, resData7, resData8)
+   CAST_FROM(GRI_RspBuf[], Offset, resData9, resData10)
+   
+   ; Decode Job ID
+   tempBytes[1] = resJobIdBytes[1]
+   tempBytes[2] = 0
+   tempBytes[3] = 0
+   tempBytes[4] = 0
+   Offset = 0
+   CAST_FROM(tempBytes[], Offset, byte1)
+ 
+   tempBytes[1] = resJobIdBytes[2]
+   tempBytes[2] = 0
+   tempBytes[3] = 0
+   tempBytes[4] = 0
+   Offset = 0
+   CAST_FROM(tempBytes[], Offset, byte2)
+ 
+   GRI_LastJobId = byte1 + byte2 * 256
+   
+   ; Decode Error Code
+   tempBytes[1] = resErrorCodeBytes[1]
+   tempBytes[2] = 0
+   tempBytes[3] = 0
+   tempBytes[4] = 0
+   Offset = 0
+   CAST_FROM(tempBytes[], Offset, byte1)
+ 
+   tempBytes[1] = resErrorCodeBytes[2]
+   tempBytes[2] = 0
+   tempBytes[3] = 0
+   tempBytes[4] = 0
+   Offset = 0
+   CAST_FROM(tempBytes[], Offset, byte2)
+ 
+   Re = byte1 + byte2 * 256
+   IF (Re >= 32768) THEN
+      Re = Re - 65536
+   ENDIF
+   GRI_LastError = Re
+   
+   ; Decode Action from the 8th byte of the header
+   tempBytes[1] = resHeader[8]
+   tempBytes[2] = 0
+   tempBytes[3] = 0
+   tempBytes[4] = 0
+   Offset = 0
+   CAST_FROM(tempBytes[], Offset, GRI_LastAction)
+   
+   ; Decode scaled coordinates
+   GRI_LastPose.X = resPosX / GRI_SCALE
+   GRI_LastPose.Y = resPosY / GRI_SCALE
+   GRI_LastPose.Z = resPosZ / GRI_SCALE
+   GRI_LastPose.A = resRot1 / GRI_SCALE
+   GRI_LastPose.B = resRot2 / GRI_SCALE
+   GRI_LastPose.C = resRot3 / GRI_SCALE
+   
+   ; Decode last data values
+   GRI_LastData1 = resData1
+   GRI_LastData2 = resData2
+   GRI_LastData3 = resData3
+   GRI_LastData4 = resData4
+   GRI_LastData5 = resData5
+   GRI_LastData6 = resData6
+   GRI_LastData7 = resData7
+   GRI_LastData8 = resData8
+   GRI_LastData9 = resData9
+   GRI_LastData10 = resData10
+   
+   GRI_LogResponse()
+   RETURN TRUE
+ENDFCT
+ 
+; ==============================================================================
+; GRI_Status
+; Returns TRUE if sensor is reachable AND ready.
+; ==============================================================================
+GLOBAL DEFFCT BOOL GRI_Status()
+   DECL BOOL Ok
+   Ok = GRI_SendAction(GRI_ACT_STATUS, 0, $NULLFRAME, 0, 0, 0, 0)
+   RETURN (Ok AND (GRI_LastError == GRI_OK) AND (GRI_LastData2 == 1))
+ENDFCT
+ 
+; ==============================================================================
+; GRI_TriggerJobSync
+; Returns TRUE on success. RemPrimary and RemRelated are populated.
+; ==============================================================================
+GLOBAL DEFFCT BOOL GRI_TriggerJobSync(JobId :IN, Pose :IN, RemPrimary :OUT, RemRelated :OUT)
+   DECL INT  JobId, RemPrimary, RemRelated
+   DECL FRAME Pose
+   DECL BOOL Ok
+   
+   RemPrimary = 0
+   RemRelated = 0
+   
+   Ok = GRI_SendAction(GRI_ACT_TRIGSYNC, JobId, Pose, 0, 0, 0, 0)
+   
+   IF NOT Ok THEN
+      RETURN FALSE
+   ENDIF
+   
+   RemPrimary = GRI_LastData2
+   RemRelated = GRI_LastData3
+   
+   RETURN (GRI_LastError == GRI_OK)
+ENDFCT
+ 
+; ==============================================================================
+; GRI_TriggerJobAsync
+; ==============================================================================
+GLOBAL DEFFCT BOOL GRI_TriggerJobAsync(JobId :IN, Pose :IN)
+   DECL INT  JobId
+   DECL FRAME Pose
+   DECL BOOL Ok
+   Ok = GRI_SendAction(GRI_ACT_TRIGASYNC, JobId, Pose, 0, 0, 0, 0)
+   RETURN (Ok AND (GRI_LastError == GRI_OK))
+ENDFCT
+ 
+; ==============================================================================
+; GRI_GetJobStatus
+; Returns JobStatus code (1=INACTIVE, 2=RUNNING, 3=DONE, 4=FAILED)
+; ==============================================================================
+GLOBAL DEFFCT INT GRI_GetJobStatus(JobId :IN)
+   DECL INT  JobId
+   DECL BOOL Ok
+   Ok = GRI_SendAction(GRI_ACT_GETJOBSTAT, JobId, $NULLFRAME, 0, 0, 0, 0)
+   IF Ok AND (GRI_LastError == GRI_OK) THEN
+      RETURN GRI_LastData2
+   ENDIF
+   RETURN 0
+ENDFCT
+ 
+; ==============================================================================
+; GRI_WaitForJob — polls until DONE/FAILED or timeout
+; ==============================================================================
+GLOBAL DEFFCT BOOL GRI_WaitForJob(JobId :IN, MaxPolls :IN, DelayMs :IN)
+   DECL INT  JobId, MaxPolls, DelayMs
+   DECL INT  PollCount, Status
+   DECL BOOL Done, Result
+   
+   PollCount = 0
+   Done      = FALSE
+   Result    = FALSE
+   
+   WHILE (NOT Done) AND (PollCount < MaxPolls)
+      Status = GRI_GetJobStatus(JobId)
+      
+      IF Status == 0 THEN
+         Done = TRUE
+      ELSE
+         IF Status == GRI_JOB_DONE THEN
+            Result = TRUE
+            Done   = TRUE
+         ENDIF
+         IF Status == GRI_JOB_FAILED THEN
+            Done = TRUE
+         ENDIF
+      ENDIF
+      
+      IF NOT Done THEN
+         WAIT SEC (DelayMs / 1000.0)
+         PollCount = PollCount + 1
+      ENDIF
+   ENDWHILE
+   
+   RETURN Result
+ENDFCT
+ 
+; ==============================================================================
+; GRI_GetNextPose
+; Returns TRUE if a pose was retrieved. RemPrimary and RemRelated populated.
+; ==============================================================================
+GLOBAL DEFFCT BOOL GRI_GetNextPose(JobId :IN, RemPrimary :OUT, RemRelated :OUT)
+   DECL INT  JobId, RemPrimary, RemRelated
+   DECL BOOL Ok
+   
+   RemPrimary = 0
+   RemRelated = 0
+   
+   Ok = GRI_SendAction(GRI_ACT_GETNEXTPOSE, JobId, $NULLFRAME, 0, 0, 0, 0)
+   
+   IF Ok AND (GRI_LastError == GRI_OK) THEN
+      RemPrimary = GRI_LastData2
+      RemRelated = GRI_LastData3
+      RETURN TRUE
+   ENDIF
+   
+   RETURN FALSE
+ENDFCT
+ 
+; ==============================================================================
+; GRI_GetRelatedPose
+; Returns TRUE if a related pose was retrieved. RemRelated populated.
+; ==============================================================================
+GLOBAL DEFFCT BOOL GRI_GetRelatedPose(JobId :IN, RemRelated :OUT)
+   DECL INT  JobId, RemRelated
+   DECL BOOL Ok
+   
+   RemRelated = 0
+   
+   Ok = GRI_SendAction(GRI_ACT_GETRELPOSE, JobId, $NULLFRAME, 0, 0, 0, 0)
+   
+   IF Ok AND (GRI_LastError == GRI_OK) THEN
+      RemRelated = GRI_LastData3
+      RETURN TRUE
+   ENDIF
+   
+   RETURN FALSE
+ENDFCT
+ 
+; ==============================================================================
+; GRI_HecInit
+; ==============================================================================
+GLOBAL DEFFCT BOOL GRI_HecInit(PipelineId :IN)
+   DECL INT  PipelineId
+   DECL BOOL Ok
+   Ok = GRI_SendAction(GRI_ACT_HECINIT, 0, $NULLFRAME, PipelineId, 0, 0, 0)
+   RETURN (Ok AND (GRI_LastError == GRI_OK))
+ENDFCT
+ 
+; ==============================================================================
+; GRI_HecSetPose
+; ==============================================================================
+GLOBAL DEFFCT BOOL GRI_HecSetPose(PipelineId :IN, SlotId :IN, Pose :IN)
+   DECL INT  PipelineId, SlotId
+   DECL FRAME Pose
+   DECL BOOL Ok
+   Ok = GRI_SendAction(GRI_ACT_HECSETPOSE, 0, Pose, PipelineId, SlotId, 0, 0)
+   RETURN (Ok AND (GRI_LastError == GRI_OK))
+ENDFCT
+ 
+; ==============================================================================
+; GRI_HecCalibrate
+; ==============================================================================
+GLOBAL DEFFCT BOOL GRI_HecCalibrate(PipelineId :IN)
+   DECL INT  PipelineId
+   DECL BOOL Ok
+   Ok = GRI_SendAction(GRI_ACT_HECCALIB, 0, $NULLFRAME, PipelineId, 0, 0, 0)
+   RETURN (Ok AND (GRI_LastError == GRI_OK))
+ENDFCT
+ 
+; ==============================================================================
+; GRI_LogResponse
+; Formats and logs the outcome of the last action.
+; ==============================================================================
+GLOBAL DEF GRI_LogResponse()
+   DECL STATE_T st
+   DECL INT offset
+   DECL CHAR actStr[24]
+   DECL CHAR errStr[24]
+   DECL CHAR statStr[12]
+   DECL CHAR msg[120]
+   DECL INT i
+   
+   IF GRI_CfgLogLevel <= 0 THEN
+      RETURN
+   ENDIF
+   
+   IF (GRI_CfgLogLevel == 1) AND (GRI_LastError == 0) THEN
+      RETURN
+   ENDIF
+   
+   FOR i = 1 TO 24
+      actStr[i] = 0
+      errStr[i] = 0
+   ENDFOR
+   FOR i = 1 TO 12
+      statStr[i] = 0
+   ENDFOR
+   FOR i = 1 TO 120
+      msg[i] = 0
+   ENDFOR
+   
+   ; 1. Format dynamic sender prefix using Action Name
+   offset = 0
+   SWITCH GRI_LastAction
+      CASE 1
+         SWRITE(actStr[], st, offset, "GRI_STATUS(%d)", GRI_LastJobId)
+      CASE 2
+         SWRITE(actStr[], st, offset, "GRI_TRIGSYNC(%d)", GRI_LastJobId)
+      CASE 3
+         SWRITE(actStr[], st, offset, "GRI_TRIGASYNC(%d)", GRI_LastJobId)
+      CASE 4
+         SWRITE(actStr[], st, offset, "GRI_JOBSTAT(%d)", GRI_LastJobId)
+      CASE 5
+         SWRITE(actStr[], st, offset, "GRI_GETNEXT(%d)", GRI_LastJobId)
+      CASE 6
+         SWRITE(actStr[], st, offset, "GRI_GETREL(%d)", GRI_LastJobId)
+      CASE 7
+         SWRITE(actStr[], st, offset, "GRI_HEC_INIT(%d)", GRI_LastJobId)
+      CASE 8
+         SWRITE(actStr[], st, offset, "GRI_HEC_SET(%d)", GRI_LastJobId)
+      CASE 9
+         SWRITE(actStr[], st, offset, "GRI_HEC_CALIB(%d)", GRI_LastJobId)
+      DEFAULT
+         SWRITE(actStr[], st, offset, "GRI_UNKNOWN(%d)", GRI_LastJobId)
+   ENDSWITCH
+   
+   ; 2. Map Error/Warning Code Name
+   SWITCH GRI_LastError
+      CASE 0
+         errStr[] = "OK"
+      CASE 1
+         errStr[] = "WARN_NOPOSES"
+      CASE 2
+         errStr[] = "WARN_NORELATED"
+      CASE 3
+         errStr[] = "WARN_NORETURN"
+      CASE 4
+         errStr[] = "WARN_RUNNING"
+      CASE -1
+         errStr[] = "ERR_UNKNOWN"
+      CASE -2
+         errStr[] = "ERR_INTERNAL"
+      CASE -3
+         errStr[] = "ERR_API_UNREACH"
+      CASE -4
+         errStr[] = "ERR_API_RESPONSE"
+      CASE -5
+         errStr[] = "ERR_NO_PIPELINE"
+      CASE -6
+         errStr[] = "ERR_INV_REQUEST"
+      CASE -7
+         errStr[] = "ERR_INV_REQ_LEN"
+      CASE -8
+         errStr[] = "ERR_INV_ACTION"
+      CASE -9
+         errStr[] = "ERR_TIMEOUT"
+      CASE -10
+         errStr[] = "ERR_PROTO_VER"
+      CASE -11
+         errStr[] = "ERR_WRONG_PROTO"
+      CASE -12
+         errStr[] = "ERR_NO_JOB"
+      CASE -13
+         errStr[] = "ERR_MISCONF_JOB"
+      CASE -14
+         errStr[] = "ERR_HEC_CONFIG"
+      CASE -15
+         errStr[] = "ERR_HEC_INIT"
+      CASE -16
+         errStr[] = "ERR_HEC_SET"
+      CASE -17
+         errStr[] = "ERR_HEC_CALIB"
+      CASE -18
+         errStr[] = "ERR_HEC_NODETECT"
+      DEFAULT
+         offset = 0
+         SWRITE(errStr[], st, offset, "CODE_%d", GRI_LastError)
+   ENDSWITCH
+   
+   ; 3. Format dynamic message body
+   offset = 0
+   IF GRI_LastError <> 0 THEN
+      SWRITE(msg[], st, offset, "Error %d: %s [Return: %d]", GRI_LastError, errStr[], GRI_LastData1)
+   ELSE
+      SWITCH GRI_LastAction
+         CASE 2, 5, 6
+            IF GRI_LastData1 <> 0 THEN
+               SWRITE(msg[], st, offset, "OK [P:%d, R:%d] [Return: %d] Pose: X=%.1f, Y=%.1f, Z=%.1f, A=%.0f, B=%.0f, C=%.0f", GRI_LastData2, GRI_LastData3, GRI_LastData1, GRI_LastPose.X, GRI_LastPose.Y, GRI_LastPose.Z, GRI_LastPose.A, GRI_LastPose.B, GRI_LastPose.C)
+            ELSE
+               SWRITE(msg[], st, offset, "OK [P:%d, R:%d] Pose: X=%.1f, Y=%.1f, Z=%.1f, A=%.0f, B=%.0f, C=%.0f", GRI_LastData2, GRI_LastData3, GRI_LastPose.X, GRI_LastPose.Y, GRI_LastPose.Z, GRI_LastPose.A, GRI_LastPose.B, GRI_LastPose.C)
+            ENDIF
+         CASE 4
+            SWITCH GRI_LastData2
+               CASE 1
+                  statStr[] = "INACTIVE"
+               CASE 2
+                  statStr[] = "RUNNING"
+               CASE 3
+                  statStr[] = "DONE"
+               CASE 4
+                  statStr[] = "FAILED"
+               DEFAULT
+                  offset = 0
+                  SWRITE(statStr[], st, offset, "STAT_%d", GRI_LastData2)
+            ENDSWITCH
+            
+            offset = 0
+            IF GRI_LastData1 <> 0 THEN
+               SWRITE(msg[], st, offset, "OK [Stat: %s (%d)] [Return: %d]", statStr[], GRI_LastData2, GRI_LastData1)
+            ELSE
+               SWRITE(msg[], st, offset, "OK [Stat: %s (%d)]", statStr[], GRI_LastData2)
+            ENDIF
+         DEFAULT
+            IF GRI_LastData1 <> 0 THEN
+               SWRITE(msg[], st, offset, "OK [Return: %d]", GRI_LastData1)
+            ELSE
+               msg[] = "OK"
+            ENDIF
+      ENDSWITCH
+   ENDIF
+   
+   MsgNotify(msg[], actStr[])
+END

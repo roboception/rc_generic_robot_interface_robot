@@ -1,0 +1,21 @@
+<Channel Version="1.1.0">
+  <Connection Protocol="TCP">
+    <Client PeerIp="1.2.3.4" PeerPort="7100" />
+  </Connection>
+  <Behavior>
+    <UnloadWhenInterpreterReset>R_INT</UnloadWhenInterpreterReset>
+  </Behavior>
+  <Buffering Size="16" Strategy="ErrorWhenFull" Type="FIFO" />
+  
+  <!-- RECEIVE (Response from GRI): Read exactly 80 bytes -->
+  <Receive Format="String" Separator="[\x00-\xFF]{80}">
+    <Message Id="0">
+      <Value IsArray="false" IsOptional="false" Name="RxBlob" Rule="^(?:[\x00-\xff]{0})([\x00-\xff]{80})" Type="String" />
+    </Message>
+  </Receive>
+  
+  <!-- SEND (Request to GRI): Send exactly 54 bytes -->
+  <Send>
+    <Message Id="0"><![CDATA[$$TxBlob:String$$]]></Message>
+  </Send>
+</Channel>

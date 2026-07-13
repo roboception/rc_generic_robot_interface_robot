@@ -1,0 +1,59 @@
+{
+  "additional_return": {
+    "primary": [
+      {
+        "json_path": "quality",
+        "target_field": "data_4",
+        "type": "float"
+      },
+      {
+        "json_path": "max_suction_surface_length",
+        "target_field": "data_5",
+        "type": "float"
+      },
+      {
+        "json_path": "max_suction_surface_width",
+        "target_field": "data_6",
+        "type": "float"
+      },
+      {
+        "json_path": ".return_code.value",
+        "target_field": "data_7",
+        "type": "int"
+      }
+    ],
+    "related": [
+      {
+        "json_path": "bounding_box.x",
+        "target_field": "data_4",
+        "type": "float"
+      },
+      {
+        "json_path": "bounding_box.y",
+        "target_field": "data_5",
+        "type": "float"
+      },
+      {
+        "json_path": "bounding_box.z",
+        "target_field": "data_6",
+        "type": "float"
+      }
+    ]
+  },
+  "args": {
+    "item_models": [
+      {
+        "type": "BAG"
+      }
+    ],
+    "pose_frame": "external",
+    "suction_surface_length": 0.02,
+    "suction_surface_width": 0.02
+  },
+  "job_type": "CALL_PIPELINE_SERVICE",
+  "name": "ItempickAi_AddInfo",
+  "node": "rc_itempick",
+  "pipeline": "0",
+  "selected_return": "grasps",
+  "service": "compute_grasps"
+}
