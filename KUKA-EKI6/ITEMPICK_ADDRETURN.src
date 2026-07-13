@@ -1,0 +1,139 @@
+&ACCESS RVP
+&REL 1
+&PARAM EDITMASK = *
+DEF ITEMPICK_ADDRETURN()
+   ; ==============================================================================
+   ; ITEMPICK_ADDRETURN.src
+   ; Application logic using convenience wrappers for Itempick (Job ID 200)
+   ; with additional returns mapped to open data slots.
+   ; ==============================================================================
+   
+   DECL BOOL  Ok
+   DECL INT   RemPrimary, RemRelated
+   DECL E6POS P_SafePos
+   
+   ; Primary fields
+   DECL REAL  GraspQuality
+   DECL REAL  SuctionLength
+   DECL REAL  SuctionWidth
+   DECL INT   GlobalRetCode
+   
+   ; Related fields (Item bounding box)
+   DECL REAL  ItemBboxX
+   DECL REAL  ItemBboxY
+   DECL REAL  ItemBboxZ
+   
+   ; Formatting / messaging variables
+   DECL CHAR  msg[120]
+   DECL STATE_T st
+   DECL INT offset
+   DECL INT i
+   
+   ; 1. Initialize global motion parameters FIRST
+   BAS(#INITMOV, 0)
+   
+   ; 2. Set Tool and Base AFTER BAS has run (TOOL_DATA[1] = FLANGE)
+   $TOOL = TOOL_DATA[1]
+   $BASE = $NULLFRAME
+   
+   ; 3. Inherit the complete position (S and T are safely kept because P_SafePos is E6POS)
+   P_SafePos = $POS_ACT
+   
+   ; 4. Perform BCO run safely in-place (ONLY motion in this program)
+   PTP P_SafePos
+   
+   GRI_Init()
+   
+   Ok = GRI_Connect()
+   IF NOT Ok THEN
+      HALT
+   ENDIF
+   
+   Ok = GRI_Status()
+   IF NOT Ok THEN
+      GRI_Disconnect()
+      HALT
+   ENDIF
+   
+   ; ---------------------------------------------------------------------------
+   ; Trigger Job 200 Synchronously
+   ; ---------------------------------------------------------------------------
+   Ok = GRI_TriggerJobSync(200, $POS_ACT, RemPrimary, RemRelated)
+   
+   IF NOT Ok THEN
+      GRI_Disconnect()
+      HALT
+   ENDIF
+   
+   IF GRI_LastError == GRI_OK THEN
+      ; Extract primary returns
+      GraspQuality  = GRI_LastData4 / 1000000.0
+      SuctionLength = GRI_LastData5 / 1000000.0
+      SuctionWidth  = GRI_LastData6 / 1000000.0
+      GlobalRetCode = GRI_LastData7
+      
+      ; Print primary returns using MsgNotify
+      FOR i = 1 TO 120
+         msg[i] = 0
+      ENDFOR
+      offset = 0
+      SWRITE(msg[], st, offset, "Primary: Quality=%.2f, Len=%.3f, Wid=%.3f, Code=%d", GraspQuality, SuctionLength, SuctionWidth, GlobalRetCode)
+      MsgNotify(msg[], "GRI_ADDRETURN")
+   ENDIF
+   
+   ; Iterate related poses for the FIRST primary pose
+   WHILE RemRelated > 0
+      Ok = GRI_GetRelatedPose(200, RemRelated)
+      IF Ok AND (GRI_LastError == GRI_OK) THEN
+         ; Extract related returns (Item Bounding Box)
+         ItemBboxX = GRI_LastData4 / 1000000.0
+         ItemBboxY = GRI_LastData5 / 1000000.0
+         ItemBboxZ = GRI_LastData6 / 1000000.0
+         
+         ; Print related returns
+         FOR i = 1 TO 120
+            msg[i] = 0
+         ENDFOR
+         offset = 0
+         SWRITE(msg[], st, offset, "Related Item: BboxX=%.3f, BboxY=%.3f, BboxZ=%.3f", ItemBboxX, ItemBboxY, ItemBboxZ)
+         MsgNotify(msg[], "GRI_ADDRETURN")
+      ENDIF
+   ENDWHILE
+   
+   ; Iterate remaining primary poses
+   WHILE RemPrimary > 0
+      Ok = GRI_GetNextPose(200, RemPrimary, RemRelated)
+      IF Ok AND (GRI_LastError == GRI_OK) THEN
+         GraspQuality  = GRI_LastData4 / 1000000.0
+         SuctionLength = GRI_LastData5 / 1000000.0
+         SuctionWidth  = GRI_LastData6 / 1000000.0
+         GlobalRetCode = GRI_LastData7
+         
+         FOR i = 1 TO 120
+            msg[i] = 0
+         ENDFOR
+         offset = 0
+         SWRITE(msg[], st, offset, "Primary: Quality=%.2f, Len=%.3f, Wid=%.3f, Code=%d", GraspQuality, SuctionLength, SuctionWidth, GlobalRetCode)
+         MsgNotify(msg[], "GRI_ADDRETURN")
+         
+         ; Iterate related poses for THIS primary pose
+         WHILE RemRelated > 0
+            Ok = GRI_GetRelatedPose(200, RemRelated)
+            IF Ok AND (GRI_LastError == GRI_OK) THEN
+               ItemBboxX = GRI_LastData4 / 1000000.0
+               ItemBboxY = GRI_LastData5 / 1000000.0
+               ItemBboxZ = GRI_LastData6 / 1000000.0
+               
+               FOR i = 1 TO 120
+                  msg[i] = 0
+               ENDFOR
+               offset = 0
+               SWRITE(msg[], st, offset, "Related Item: BboxX=%.3f, BboxY=%.3f, BboxZ=%.3f", ItemBboxX, ItemBboxY, ItemBboxZ)
+               MsgNotify(msg[], "GRI_ADDRETURN")
+            ENDIF
+         ENDWHILE
+      ENDIF
+   ENDWHILE
+   
+   GRI_Disconnect()
+END

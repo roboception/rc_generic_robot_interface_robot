@@ -1,0 +1,101 @@
+&ACCESS RVP
+&REL 1
+&PARAM EDITMASK = *
+DEF CADMATCH_BASIC()
+   ; ==============================================================================
+   ; CADMATCH_BASIC.src
+   ; Application logic using the convenience wrappers for CADMATCH (Job ID 100).
+   ; ==============================================================================
+   
+   DECL BOOL  Ok
+   DECL INT   RemPrimary, RemRelated
+   DECL FRAME TargetFrame
+   DECL E6POS P_SafePos
+   
+   ; 1. Initialize global motion parameters FIRST
+   BAS(#INITMOV, 0)
+   
+   ; 2. Set Tool and Base AFTER BAS has run (TOOL_DATA[1] = FLANGE)
+   $TOOL = TOOL_DATA[1]
+   $BASE = $NULLFRAME
+   
+   ; 3. Inherit the complete position (S and T are safely kept because P_SafePos is E6POS)
+   P_SafePos = $POS_ACT
+   
+   ; 4. Perform BCO run safely in-place
+   PTP P_SafePos
+   
+   GRI_Init()
+   
+   Ok = GRI_Connect()
+   IF NOT Ok THEN
+      HALT
+   ENDIF
+   
+   Ok = GRI_Status()
+   IF NOT Ok THEN
+      GRI_Disconnect()
+      HALT
+   ENDIF
+   
+   ; ---------------------------------------------------------------------------
+   ; SECTION 2 -- Synchronous job (Job 100)
+   ; ---------------------------------------------------------------------------
+   Ok = GRI_TriggerJobSync(100, $POS_ACT, RemPrimary, RemRelated)
+   
+   IF NOT Ok THEN
+      GRI_Disconnect()
+      HALT
+   ENDIF
+   
+   IF GRI_LastError == GRI_OK THEN
+      PTP GRI_LastPose
+   ENDIF
+   
+   ; Iterate related poses for the FIRST primary pose
+   WHILE RemRelated > 0
+      Ok = GRI_GetRelatedPose(100, RemRelated)
+   ENDWHILE
+   
+   ; Iterate remaining primary poses
+   WHILE RemPrimary > 0
+      Ok = GRI_GetNextPose(100, RemPrimary, RemRelated)
+      IF Ok AND (GRI_LastError == GRI_OK) THEN
+         PTP GRI_LastPose
+         
+         ; Iterate related poses for THIS primary pose
+         WHILE RemRelated > 0
+            Ok = GRI_GetRelatedPose(100, RemRelated)
+         ENDWHILE
+      ENDIF
+   ENDWHILE
+   
+   ; ---------------------------------------------------------------------------
+   ; SECTION 3 -- Asynchronous job (Job 100)
+   ; ---------------------------------------------------------------------------
+   Ok = GRI_TriggerJobAsync(100, $POS_ACT)
+   IF NOT Ok THEN
+      GRI_Disconnect()
+      HALT
+   ENDIF
+   
+   PTP P_SafePos
+   
+   Ok = GRI_WaitForJob(100, 50, 200)
+   IF NOT Ok THEN
+      GRI_Disconnect()
+      HALT
+   ENDIF
+   
+   ; Fetch poses until exhausted
+   LOOP
+      Ok = GRI_GetNextPose(100, RemPrimary, RemRelated)
+      IF NOT Ok THEN
+         EXIT
+      ENDIF
+      
+      TargetFrame = GRI_LastPose
+   ENDLOOP
+   
+   GRI_Disconnect()
+END
