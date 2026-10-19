@@ -22,6 +22,13 @@ Complete KAREL/TP implementation for FANUC robot controllers.
 - Simple CALL interface for all vision functions
 - Background processing with KAREL programs
 
+### KUKA Robots
+Complete KRL implementation using EthernetKRL (EKI) for KUKA robot controllers.  
+[View KUKA Documentation](KUKA-EKI6/README.md)  
+- Supports iiQKA.OS2 controllers with iiQKA.EthernetKRL 6 (EKI 6)
+- All Interface Actions are implemented as `GLOBAL` KRL functions callable from any module
+- Includes application, hand-eye calibration and CADMatch / ItemPick examples
+
 ### Techman Robots
 Complete TMflow Component and TMScript implementation for Techman robot controllers.  
 [View Techman Documentation](Techman/README_Techman.md)
