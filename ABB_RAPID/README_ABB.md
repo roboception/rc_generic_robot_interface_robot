@@ -12,7 +12,9 @@ This is the ABB RAPID implementation of Roboception's Generic Robot Interface. I
 
 ## Enabling PC Interface for Socket Communication
 
-To use socket communication in ABB RAPID, the PC Interface option must be enabled on your robot controller.
+To use socket communication in ABB RAPID on an IRC5 controller, the PC Interface option must be enabled.
+
+On OmniCore controllers (RobotWare 7), socket messaging is included in RobotWare Base; no additional option is needed and the steps below can be skipped. The implementation has been tested on IRC5 only so far.
 
 **Steps:**
 
