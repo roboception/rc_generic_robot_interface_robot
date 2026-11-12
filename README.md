@@ -11,8 +11,9 @@ Integrating REST-API directly into robot controllers poses significant challenge
 ### ABB Robots
 Complete RAPID implementation for ABB robot controllers.  
 [View ABB Documentation](ABB_RAPID/README_ABB.md)  
-- Supports IRC5 controllers  
-- Tested with RobotWare 6.0 and higher  
+- Tested on IRC5 controllers with RobotWare 6.0 and higher  
+- Uses only standard RAPID socket instructions, so it is expected to run on OmniCore (RobotWare 7) as well; not yet tested there  
+- IRC5 requires option 616-1 PC Interface; on OmniCore, socket messaging is part of RobotWare Base  
 - All Interface Actions are implemented callable with simple function calls
 
 ### FANUC Robots
