@@ -119,13 +119,13 @@ MODULE RcSocketCommunication(READONLY)
             iq2 := NumToDnum(Round(current_pos.rot.q2 * 1000000));    ! X -> rot_2
             iq3 := NumToDnum(Round(current_pos.rot.q3 * 1000000));    ! Y -> rot_3
             iq4 := NumToDnum(Round(current_pos.rot.q4 * 1000000));    ! Z -> rot_4
-            PackRawBytes ix,  request, 11, \IntX:=4;    ! pos_x at bytes 11..14
-            PackRawBytes iy,  request, 15, \IntX:=4;    ! pos_y at bytes 15..18
-            PackRawBytes iz,  request, 19, \IntX:=4;    ! pos_z at bytes 19..22
-            PackRawBytes iq1, request, 23, \IntX:=4;    ! rot_1 at bytes 23..26 (W)
-            PackRawBytes iq2, request, 27, \IntX:=4;    ! rot_2 at bytes 27..30 (X)
-            PackRawBytes iq3, request, 31, \IntX:=4;    ! rot_3 at bytes 31..34 (Y)
-            PackRawBytes iq4, request, 35, \IntX:=4;    ! rot_4 at bytes 35..38 (Z)
+            PackRawBytes ix,  request, 11, \IntX:=DINT;    ! pos_x at bytes 11..14
+            PackRawBytes iy,  request, 15, \IntX:=DINT;    ! pos_y at bytes 15..18
+            PackRawBytes iz,  request, 19, \IntX:=DINT;    ! pos_z at bytes 19..22
+            PackRawBytes iq1, request, 23, \IntX:=DINT;    ! rot_1 at bytes 23..26 (W)
+            PackRawBytes iq2, request, 27, \IntX:=DINT;    ! rot_2 at bytes 27..30 (X)
+            PackRawBytes iq3, request, 31, \IntX:=DINT;    ! rot_3 at bytes 31..34 (Y)
+            PackRawBytes iq4, request, 35, \IntX:=DINT;    ! rot_4 at bytes 35..38 (Z)
         ELSE
             FOR i FROM 11 TO 35 STEP 4 DO
                 PackRawBytes 0, request, i, \IntX:=DINT;
