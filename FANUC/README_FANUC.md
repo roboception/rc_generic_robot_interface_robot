@@ -1,4 +1,4 @@
-# FANUC Robot Interface for Roboception Vision Systems
+# FANUC Generic Robot Interface for Roboception Vision Systems
 
 This document describes the FANUC client implementation for Roboception's Generic Robot Interface (GRI). The GRI enables FANUC robots to communicate with Roboception 3D vision systems through a simple, streamlined interface.
 

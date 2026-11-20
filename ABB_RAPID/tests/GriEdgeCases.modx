@@ -1,0 +1,178 @@
+MODULE GriEdgeCases
+    ! Edge-case tests for the GRI client against a live rc_cube.
+    ! Run: PP to Routine edge_tests, then start. Each case prints one line
+    ! "PASS <n> <name>" or "FAIL <n> <name>: <detail>", then a summary.
+    ! Expected sensor setup: job 0 sync ItemPick, job 1 same for async,
+    ! job 2 ItemPick with dynamic args (data_3 = pose_frame map 1/2).
+
+    LOCAL CONST num EDGE_FRAME_EXTERNAL := 2;
+    LOCAL CONST num EDGE_UNMAPPED_FRAME := 99;
+    LOCAL CONST num EDGE_MISSING_JOB := 99;
+    LOCAL CONST num EDGE_MAX_POSES := 20;
+
+    LOCAL VAR num n_pass := 0;
+    LOCAL VAR num n_fail := 0;
+    LOCAL VAR clock clk;
+
+    LOCAL FUNC string b2s(bool b)
+        IF b THEN
+            RETURN "TRUE";
+        ENDIF
+        RETURN "FALSE";
+    ENDFUNC
+
+    ! "ret=<bool> code=<gri_last.error_code>"
+    LOCAL FUNC string ret_code(bool ret)
+        RETURN "ret=" + b2s(ret) + " code=" + NumToStr(gri_last.error_code, 0);
+    ENDFUNC
+
+    LOCAL PROC out_line(string line)
+        TPWrite line;
+        ErrWrite \I, "GriEdgeCases", line;
+    ENDPROC
+
+    ! Count and print one result. name + detail are cut so the line stays <= 80
+    LOCAL PROC report(num n, string name, bool ok, string detail)
+        VAR string d;
+        VAR num room;
+
+        d := detail;
+        room := 70 - StrLen(name);
+        IF StrLen(d) > room THEN
+            d := StrPart(d, 1, room);
+        ENDIF
+        IF ok THEN
+            n_pass := n_pass + 1;
+            out_line "PASS " + NumToStr(n, 0) + " " + name;
+        ELSE
+            n_fail := n_fail + 1;
+            out_line "FAIL " + NumToStr(n, 0) + " " + name + ": " + d;
+        ENDIF
+    ENDPROC
+
+    PROC edge_tests()
+        VAR robtarget tgt;
+        VAR bool ok;
+        VAR bool ok2;
+        VAR bool more;
+        VAR num iter;
+        VAR num code;
+        VAR num t;
+        VAR num remaining_primary;
+        VAR num remaining_related;
+
+        n_pass := 0;
+        n_fail := 0;
+        out_line "GRI edge tests start";
+        socket_connect;
+        ok := get_status();
+        IF gri_last.error_code = ERR_COMMUNICATION THEN
+            out_line "No connection to the server, abort";
+            socket_disconnect;
+            EXIT;
+        ENDIF
+
+        ! 1. Async job 1, wait_for_job without \timeout must not fail at once
+        ok := trigger_job_async(1);
+        IF NOT ok THEN
+            report 1, "async wait no timeout", FALSE, "trigger " + ret_code(ok);
+        ELSE
+            ok := wait_for_job(1);
+            report 1, "async wait no timeout", ok, "wait " + ret_code(ok);
+        ENDIF
+
+        ! 2. Sync job 2 with unmapped data3 -> FALSE, -20
+        ok := trigger_job_sync(2, tgt \data1:=gri_float(0.03) \data2:=gri_float(0.03) \data3:=EDGE_UNMAPPED_FRAME);
+        IF ok THEN
+            report 2, "sync unmapped data3", FALSE, ret_code(ok);
+        ELSE
+            report 2, "sync unmapped data3", gri_last.error_code = ERR_UNMAPPED_VALUE_ERROR, ret_code(ok);
+        ENDIF
+
+        ! 3. Async job 2 with unmapped data3: wait_for_job fails fast (< 5 s)
+        ok := trigger_job_async(2 \data1:=gri_float(0.03) \data2:=gri_float(0.03) \data3:=EDGE_UNMAPPED_FRAME);
+        code := gri_last.error_code;
+        out_line "  3 trigger " + ret_code(ok);
+        ClkReset clk;
+        ClkStart clk;
+        ok2 := wait_for_job(2 \timeout:=10000);
+        ClkStop clk;
+        t := ClkRead(clk);
+        IF (NOT ok) AND (code < 0) THEN
+            ! Rejected already at the trigger: the bad argument is handled cleanly
+            report 3, "async unmapped wait", TRUE, "";
+            out_line "  3 rejected at trigger; wait " + ret_code(ok2) + " t=" + NumToStr(t, 2);
+        ELSEIF ok2 THEN
+            report 3, "async unmapped wait", FALSE, "wait " + ret_code(ok2);
+        ELSEIF gri_last.error_code >= 0 THEN
+            report 3, "async unmapped wait", FALSE, "wait " + ret_code(ok2);
+        ELSE
+            report 3, "async unmapped wait", t < 5, "slow t=" + NumToStr(t, 2) + " " + ret_code(ok2);
+            out_line "  3 wait " + ret_code(ok2) + " t=" + NumToStr(t, 2) + " s";
+        ENDIF
+
+        ! 4. Sync trigger of a job id that does not exist -> FALSE, -12
+        ok := trigger_job_sync(EDGE_MISSING_JOB, tgt);
+        IF ok THEN
+            report 4, "sync missing job", FALSE, ret_code(ok);
+        ELSE
+            report 4, "sync missing job", gri_last.error_code = ERR_JOB_DOES_NOT_EXIST, ret_code(ok);
+        ENDIF
+
+        ! 5. Drain job 0 with get_next_pose, then one call more
+        ok := trigger_job_sync(0, tgt \remaining_primary:=remaining_primary);
+        IF NOT ok THEN
+            report 5, "drain next pose", FALSE, "trigger " + ret_code(ok);
+        ELSE
+            out_line "  5 trigger ok, remaining_primary=" + NumToStr(remaining_primary, 0);
+            iter := 0;
+            more := TRUE;
+            WHILE more AND (iter < EDGE_MAX_POSES) DO
+                iter := iter + 1;
+                more := get_next_pose(0, tgt \remaining_primary:=remaining_primary);
+            ENDWHILE
+            out_line "  5 loop calls=" + NumToStr(iter, 0) + " last code=" + NumToStr(gri_last.error_code, 0);
+            ok2 := get_next_pose(0, tgt);
+            IF more THEN
+                report 5, "drain next pose", FALSE, "no end in " + NumToStr(EDGE_MAX_POSES, 0) + " calls";
+            ELSE
+                report 5, "drain next pose", NOT ok2, "extra call " + ret_code(ok2);
+            ENDIF
+        ENDIF
+
+        ! 6. Related pose after the drain: any clean return passes
+        ok := get_related_pose(0, tgt \remaining_related:=remaining_related);
+        report 6, "related after drain", TRUE, "";
+        out_line "  6 " + ret_code(ok) + " remaining_related=" + NumToStr(remaining_related, 0);
+
+        ! 8. Sync job 2 with a negative float (runs before 7, which disconnects)
+        ok := trigger_job_sync(2, tgt \data1:=gri_float(-0.03) \data2:=gri_float(0.03) \data3:=EDGE_FRAME_EXTERNAL);
+        IF ok THEN
+            report 8, "negative float arg", TRUE, "";
+        ELSE
+            report 8, "negative float arg", get_error_string(gri_last.error_code) <> "Unknown Error Code", "unknown " + ret_code(ok);
+        ENDIF
+        out_line "  8 " + ret_code(ok) + " data4=" + NumToStr(gri_last.data4, 0);
+
+        ! 7. After disconnect: FALSE, ERR_COMMUNICATION, no stale data4
+        socket_disconnect;
+        ok := get_status();
+        IF ok THEN
+            report 7, "call when disconnected", FALSE, ret_code(ok);
+        ELSEIF gri_last.error_code <> ERR_COMMUNICATION THEN
+            report 7, "call when disconnected", FALSE, ret_code(ok);
+        ELSE
+            report 7, "call when disconnected", gri_last.data4 = 0, "stale data4=" + NumToStr(gri_last.data4, 0);
+        ENDIF
+
+        out_line NumToStr(n_pass, 0) + " passed, " + NumToStr(n_fail, 0) + " failed";
+        socket_disconnect;
+        EXIT;  ! run once; RETURN would restart in continuous run mode
+
+    ERROR
+        ! An unexpected error in a case counts as failed; go on with the next instruction
+        n_fail := n_fail + 1;
+        out_line "FAIL unhandled error ERRNO=" + NumToStr(ERRNO, 0);
+        TRYNEXT;
+    ENDPROC
+ENDMODULE
