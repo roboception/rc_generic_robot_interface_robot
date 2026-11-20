@@ -2,590 +2,283 @@ MODULE RcInterfaceFunctions(READONLY)
     !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     ! High Level functions to trigger API methods - to be explicitly used in the robot program
     !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-    
+
     LOCAL VAR rawbytes request;
     LOCAL VAR rawbytes response;
-    
-    FUNC bool get_status(\VAR bool ready, \bool debug)
-        VAR num magic;
-        VAR num protocol_ver;
-        VAR num message_length;
-        VAR num pose_format;
-        VAR num action;
-        VAR num resp_job_id;
-        VAR num error_code;
-        VAR robtarget pose;
-        VAR num data1;
-        VAR num data2;
-        VAR num data3;
-        VAR num data4;
-        VAR num data5;
-        
-        ! Pack and send STATUS request
-        request_pack request, ACTION_STATUS, 0;
+    ! Response of the last request (filled by transact). data_1..data_10 are in the gri_result
+    ! fields node_return_code, remaining_primary, remaining_related, data4..data10.
+    LOCAL VAR gri_result reply;
+    ! Receives the response pose of requests that do not return one
+    LOCAL VAR robtarget unused_pose;
 
-        IF NOT socket_send_receive(request, response \debug:=debug) THEN
+    ! Result of the last request (any function below that talks to the server).
+    ! data4..data10 carry the job's additional_return values. Reset at the start of
+    ! every request; error_code is ERR_COMMUNICATION if no valid response arrived.
+    VAR gri_result gri_last;
+
+    ! Float <-> GRI int conversion (values are scaled by 1e6 on the wire)
+    FUNC num gri_float(num value)
+        RETURN Round(value * 1000000);
+    ENDFUNC
+
+    FUNC num gri_to_float(num raw)
+        RETURN raw / 1000000;
+    ENDFUNC
+
+    FUNC bool gri_to_bool(num raw)
+        RETURN raw <> 0;
+    ENDFUNC
+
+    ! Pack and send a request, receive the response and unpack it into reply and pose.
+    ! gri_last is cleared first and receives reply on success.
+    ! FALSE if sending, receiving or unpacking failed (already reported); then
+    ! gri_last.error_code is ERR_COMMUNICATION.
+    ! Errors raised here propagate to the caller's ERROR handler.
+    LOCAL FUNC bool transact(num action, num job_id, VAR robtarget pose, \robtarget current_pos, \num data1, \num data2, \num data3, \num data4, \bool debug)
+        ! Preset to ERR_COMMUNICATION so that every failure path, including errors
+        ! raised to the caller's ERROR handler, leaves no stale or "success" result
+        gri_last := [ERR_COMMUNICATION, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+        request_pack request, action, job_id \current_pos?current_pos \data1?data1 \data2?data2 \data3?data3 \data4?data4;
+        IF NOT socket_send_receive(request, response \debug?debug) THEN
             RETURN FALSE;
         ENDIF
-
-        
-        ! Unpack response
-        IF NOT response_unpack(response,
-                             magic,
-                             protocol_ver,
-                             message_length,
-                             pose_format,
-                             action,
-                             resp_job_id,
-                             error_code,
-                             pose,
-                             data1,
-                             data2,
-                             data3,
-                             data4,
-                             data5) THEN
+        IF NOT response_unpack(response, pose, reply) THEN
             RETURN FALSE;
         ENDIF
-        
-        IF error_code = 0 THEN
-            ! data2 contains readiness flag (1 = ready, 0 = not ready)
-            ! Set OUT parameter if present
-            IF Present(ready) THEN
-                IF data2 = 1 THEN
-                    ready := TRUE;
-                ELSE
-                    ready := FALSE;
-                ENDIF
-            ENDIF
-            
-            IF Present(debug) THEN
-                ErrWrite \I, "StatusInfo", "System ready: " + NumToStr(data2, 0);
-            ENDIF
-            
-            IF data2 = 1 THEN
+        gri_last := reply;
+        RETURN TRUE;
+    ENDFUNC
+
+    ! TRUE if reply.error_code is 0. Otherwise writes "<tag>Error": "<subject> failed: <reason>"
+    ! and returns FALSE. With \warn_ok, warning MISSING_ADDITIONAL_DATA is written as
+    ! "<tag>Warn": "<subject>: <reason>" and returns TRUE.
+    LOCAL FUNC bool check_reply(string tag, string subject, \switch warn_ok)
+        IF reply.error_code = ERR_NO_ERROR THEN
+            RETURN TRUE;
+        ENDIF
+        IF Present(warn_ok) THEN
+            IF reply.error_code = ERR_MISSING_ADDITIONAL_DATA THEN
+                ErrWrite \W, tag + "Warn", subject + ": " + get_error_string(reply.error_code);
                 RETURN TRUE;
-            ELSE
-                RETURN FALSE;
             ENDIF
-        ELSE
-            ! On error, set ready to FALSE if parameter provided
+        ENDIF
+        ErrWrite \W, tag + "Error", subject + " failed: " + get_error_string(reply.error_code);
+        RETURN FALSE;
+    ENDFUNC
+
+    ! Common result handling of trigger_job_sync / get_next_pose / get_related_pose:
+    ! set the OUT parameters given, check the error code.
+    LOCAL FUNC bool pose_result(string tag, num job_id, \VAR num remaining_primary, \VAR num remaining_related, \VAR num node_return_code)
+        IF Present(node_return_code) THEN
+            node_return_code := reply.node_return_code;
+        ENDIF
+        IF Present(remaining_primary) THEN
+            remaining_primary := reply.remaining_primary;
+        ENDIF
+        IF Present(remaining_related) THEN
+            remaining_related := reply.remaining_related;
+        ENDIF
+        RETURN check_reply(tag, "Job " + NumToStr(job_id, 0) \warn_ok);
+    ENDFUNC
+
+    FUNC bool get_status(\VAR bool ready, \bool debug)
+        IF NOT transact(ACTION_STATUS, 0, unused_pose \debug?debug) THEN
+            RETURN FALSE;
+        ENDIF
+
+        IF NOT check_reply("Status", "Status check") THEN
             IF Present(ready) THEN
                 ready := FALSE;
             ENDIF
-            ErrWrite \W, "StatusError", "Status check failed: " + get_error_string(error_code);
             RETURN FALSE;
         ENDIF
-        
+
+        ! data_2 carries the readiness flag (1 = ready, 0 = not ready)
+        IF Present(ready) THEN
+            ready := reply.remaining_primary = 1;
+        ENDIF
+        IF Present(debug) THEN
+            ErrWrite \I, "StatusInfo", "System ready: " + NumToStr(reply.remaining_primary, 0);
+        ENDIF
+        RETURN reply.remaining_primary = 1;
+
     ERROR
         ErrWrite \W, "StatusError", "Failed checking system status";
         RETURN FALSE;
     ENDFUNC
-    
-    FUNC bool trigger_job_sync(num job_id, INOUT robtarget output_point, \VAR num remaining_primary, \VAR num remaining_related, \VAR num node_return_code, \bool debug)
-        VAR num magic;
-        VAR num protocol_ver;
-        VAR num message_length;
-        VAR num pose_format;
-        VAR num action;
-        VAR num resp_job_id;
-        VAR num error_code;
-        VAR robtarget current_pos;
-        VAR num data1;
-        VAR num data2;
-        VAR num data3;
-        VAR num data4;
-        VAR num data5;
-        
-        ! Get current robot position
-        current_pos := CRobT(\Tool:=tool0\WObj:=wobj0);
-        
-        ! Pack and send request with current position
-        request_pack request, ACTION_TRIGGER_JOB_SYNC, job_id \current_pos:=current_pos;
-        
-        IF NOT socket_send_receive(request, response \debug:=debug) THEN
+
+    FUNC bool trigger_job_sync(num job_id, INOUT robtarget output_point, \VAR num remaining_primary, \VAR num remaining_related, \VAR num node_return_code, \num data1, \num data2, \num data3, \num data4, \bool debug)
+        ! Send the current robot position along with the request
+        IF NOT transact(ACTION_TRIGGER_JOB_SYNC, job_id, output_point \current_pos:=CRobT(\Tool:=tool0\WObj:=wobj0) \data1?data1 \data2?data2 \data3?data3 \data4?data4 \debug?debug) THEN
             RETURN FALSE;
         ENDIF
-        
-        ! Unpack response
-        IF NOT response_unpack(response,
-                             magic,
-                             protocol_ver,
-                             message_length,
-                             pose_format,
-                             action,
-                             resp_job_id,
-                             error_code,
-                             output_point,
-                             data1,
-                             data2,
-                             data3,
-                             data4,
-                             data5) THEN
-            RETURN FALSE;
-        ENDIF
-        
-        ! Set OUT parameters (data1 = node return code, data2 = remaining primary, data3 = remaining related)
-        IF Present(node_return_code) THEN
-            node_return_code := data1;
-        ENDIF
-        IF Present(remaining_primary) THEN
-            remaining_primary := data2;
-        ENDIF
-        IF Present(remaining_related) THEN
-            remaining_related := data3;
-        ENDIF
-        
-        IF error_code = 0 THEN
-            RETURN TRUE;
-        ELSE
-            ErrWrite \W, "TriggerJobSyncError", "Job " + NumToStr(job_id, 0) + " failed: " + get_error_string(error_code);
-            RETURN FALSE;
-        ENDIF
-        
+        RETURN pose_result("TriggerJobSync", job_id \remaining_primary?remaining_primary \remaining_related?remaining_related \node_return_code?node_return_code);
+
     ERROR
         ErrWrite \W, "TriggerJobSyncError", "Failed executing sync job " + NumToStr(job_id, 0);
         RETURN FALSE;
     ENDFUNC
-    
-    FUNC bool trigger_job_async(num job_id, \bool debug)
-        VAR num magic;
-        VAR num protocol_ver;
-        VAR num message_length;
-        VAR num pose_format;
-        VAR num action;
-        VAR num resp_job_id;
-        VAR num error_code;
-        VAR robtarget pose;
-        VAR robtarget current_pos;
-        VAR num data1;
-        VAR num data2;
-        VAR num data3;
-        VAR num data4;
-        VAR num data5;
-        
-        ! Get current robot position
-        current_pos := CRobT(\Tool:=tool0\WObj:=wobj0);
-        
-        ! Pack and send request with current position
-        request_pack request, ACTION_TRIGGER_JOB_ASYNC, job_id \current_pos:=current_pos;
-        
-        IF NOT socket_send_receive(request, response \debug:=debug) THEN
+
+    FUNC bool trigger_job_async(num job_id, \num data1, \num data2, \num data3, \num data4, \bool debug)
+        ! Send the current robot position along with the request
+        IF NOT transact(ACTION_TRIGGER_JOB_ASYNC, job_id, unused_pose \current_pos:=CRobT(\Tool:=tool0\WObj:=wobj0) \data1?data1 \data2?data2 \data3?data3 \data4?data4 \debug?debug) THEN
             RETURN FALSE;
         ENDIF
-        
-        ! Unpack response (we only care about error code)
-        IF NOT response_unpack(response,
-                             magic,
-                             protocol_ver,
-                             message_length,
-                             pose_format,
-                             action,
-                             resp_job_id,
-                             error_code,
-                             pose,
-                             data1,
-                             data2,
-                             data3,
-                             data4,
-                             data5) THEN
-            RETURN FALSE;
-        ENDIF
-        
-        IF error_code = 0 THEN
-            RETURN TRUE;
-        ELSE
-            ErrWrite \W, "TriggerJobAsyncError", "Job " + NumToStr(job_id, 0) + " failed: " + get_error_string(error_code);
-            RETURN FALSE;
-        ENDIF
-        
+
+        ! An async trigger returns no additional_return values: data6..data10 stay 0
+        gri_last.data6 := 0;
+        gri_last.data7 := 0;
+        gri_last.data8 := 0;
+        gri_last.data9 := 0;
+        gri_last.data10 := 0;
+        RETURN check_reply("TriggerJobAsync", "Job " + NumToStr(job_id, 0));
+
     ERROR
         ErrWrite \W, "TriggerJobAsyncError", "Failed triggering async job " + NumToStr(job_id, 0);
         RETURN FALSE;
     ENDFUNC
-    
+
     FUNC bool get_next_pose(num job_id, INOUT robtarget output_point, \VAR num remaining_primary, \VAR num remaining_related, \VAR num node_return_code, \bool debug)
-        VAR num magic;
-        VAR num protocol_ver;
-        VAR num message_length;
-        VAR num pose_format;
-        VAR num action;
-        VAR num resp_job_id;
-        VAR num error_code;
-        VAR num data1;
-        VAR num data2;
-        VAR num data3;
-        VAR num data4;
-        VAR num data5;
-        
-        ! Pack and send request (no position needed)
-        request_pack request, ACTION_GET_NEXT_POSE, job_id;
-        
-        IF NOT socket_send_receive(request, response \debug:=debug) THEN
+        IF NOT transact(ACTION_GET_NEXT_POSE, job_id, output_point \debug?debug) THEN
             RETURN FALSE;
         ENDIF
-        
-        ! Unpack response
-        IF NOT response_unpack(response,
-                             magic,
-                             protocol_ver,
-                             message_length,
-                             pose_format,
-                             action,
-                             resp_job_id,
-                             error_code,
-                             output_point,
-                             data1,
-                             data2,
-                             data3,
-                             data4,
-                             data5) THEN
-            RETURN FALSE;
-        ENDIF
-        
-        ! Set OUT parameters (data1 = node return code, data2 = remaining primary, data3 = remaining related)
-        IF Present(node_return_code) THEN
-            node_return_code := data1;
-        ENDIF
-        IF Present(remaining_primary) THEN
-            remaining_primary := data2;
-        ENDIF
-        IF Present(remaining_related) THEN
-            remaining_related := data3;
-        ENDIF
-        
-        IF error_code = 0 THEN
-            RETURN TRUE;
-        ELSE
-            ErrWrite \W, "GetNextPoseError", "Job " + NumToStr(job_id, 0) + " failed: " + get_error_string(error_code);
-            RETURN FALSE;
-        ENDIF
-        
+        RETURN pose_result("GetNextPose", job_id \remaining_primary?remaining_primary \remaining_related?remaining_related \node_return_code?node_return_code);
+
     ERROR
         ErrWrite \W, "GetNextPoseError", "Failed getting next pose for job " + NumToStr(job_id, 0);
         RETURN FALSE;
     ENDFUNC
-    
+
     FUNC bool get_related_pose(num job_id, INOUT robtarget output_point, \VAR num remaining_related, \VAR num node_return_code, \bool debug)
-        VAR num magic;
-        VAR num protocol_ver;
-        VAR num message_length;
-        VAR num pose_format;
-        VAR num action;
-        VAR num resp_job_id;
-        VAR num error_code;
-        VAR num data1;
-        VAR num data2;
-        VAR num data3;
-        VAR num data4;
-        VAR num data5;
-        
-        ! Pack and send request (no position needed)
-        request_pack request, ACTION_GET_RELATED_POSE, job_id;
-        
-        IF NOT socket_send_receive(request, response \debug:=debug) THEN
+        IF NOT transact(ACTION_GET_RELATED_POSE, job_id, output_point \debug?debug) THEN
             RETURN FALSE;
         ENDIF
-        
-        ! Unpack response
-        IF NOT response_unpack(response,
-                             magic,
-                             protocol_ver,
-                             message_length,
-                             pose_format,
-                             action,
-                             resp_job_id,
-                             error_code,
-                             output_point,
-                             data1,
-                             data2,
-                             data3,
-                             data4,
-                             data5) THEN
-            RETURN FALSE;
-        ENDIF
-        
-        ! Set OUT parameters (data1 = node return code, data3 = remaining related)
-        IF Present(node_return_code) THEN
-            node_return_code := data1;
-        ENDIF
-        IF Present(remaining_related) THEN
-            remaining_related := data3;
-        ENDIF
-        
-        IF error_code = 0 THEN
-            RETURN TRUE;
-        ELSE
-            ErrWrite \W, "GetRelatedPoseError", "Job " + NumToStr(job_id, 0) + " failed: " + get_error_string(error_code);
-            RETURN FALSE;
-        ENDIF
-        
+        RETURN pose_result("GetRelatedPose", job_id \remaining_related?remaining_related \node_return_code?node_return_code);
+
     ERROR
         ErrWrite \W, "GetRelatedPoseError", "Failed getting related pose for job " + NumToStr(job_id, 0);
         RETURN FALSE;
     ENDFUNC
-    
+
+    ! Returns JOB_STATUS_*. A failed async job (e.g. a bad dynamic argument, -19/-20)
+    ! returns JOB_STATUS_FAILED; its error code is in gri_last.error_code.
+    ! JOB_STATUS_UNKNOWN if the request itself failed.
     FUNC num get_job_status(num job_id, \VAR num error_code_out, \VAR num node_return_code, \bool debug)
-        VAR num magic;
-        VAR num protocol_ver;
-        VAR num message_length;
-        VAR num pose_format;
-        VAR num action;
-        VAR num resp_job_id;
-        VAR num error_code;
-        VAR robtarget pose;
-        VAR num data1;
-        VAR num data2;
-        VAR num data3;
-        VAR num data4;
-        VAR num data5;
-        
-        ! Pack and send request
-        request_pack request, ACTION_GET_JOB_STATUS, job_id;
-                                       
-        IF NOT socket_send_receive(request, response \debug:=debug) THEN
+        IF NOT transact(ACTION_GET_JOB_STATUS, job_id, unused_pose \debug?debug) THEN
             RETURN JOB_STATUS_UNKNOWN;
         ENDIF
-        
-        ! Unpack response
-        IF NOT response_unpack(response,
-                             magic,
-                             protocol_ver,
-                             message_length,
-                             pose_format,
-                             action,
-                             resp_job_id,
-                             error_code,
-                             pose,
-                             data1,
-                             data2,
-                             data3,
-                             data4,
-                             data5) THEN
-            RETURN JOB_STATUS_UNKNOWN;
-        ENDIF
-        
-        ! Set OUT parameters
+
         IF Present(error_code_out) THEN
-            error_code_out := error_code;
+            error_code_out := reply.error_code;
         ENDIF
         IF Present(node_return_code) THEN
-            node_return_code := data1;
+            node_return_code := reply.node_return_code;
         ENDIF
-        
-        IF error_code = 0 THEN
-            IF Present(debug) AND debug THEN
-                ErrWrite \I, "JobStatus", NumToStr(data2, 0);
+
+        IF NOT check_reply("GetJobStatus", "Job " + NumToStr(job_id, 0)) THEN
+            ! The server reports a failed job with its error code and status FAILED in data_2
+            IF reply.remaining_primary = JOB_STATUS_FAILED THEN
+                RETURN JOB_STATUS_FAILED;
             ENDIF
-            
-            RETURN data2;  ! Return the job status integer from data_2 per spec
-        ELSE
-            ErrWrite \W, "GetJobStatusError", "Job " + NumToStr(job_id, 0) + " failed: " + get_error_string(error_code);
             RETURN JOB_STATUS_UNKNOWN;
         ENDIF
-        
+
+        ! data_2 carries the job status (JOB_STATUS_*)
+        IF Present(debug) THEN
+            IF debug THEN
+                ErrWrite \I, "JobStatus", NumToStr(reply.remaining_primary, 0);
+            ENDIF
+        ENDIF
+        RETURN reply.remaining_primary;
+
     ERROR
         ErrWrite \W, "GetJobStatusError", "Failed checking job " + NumToStr(job_id, 0);
         RETURN JOB_STATUS_UNKNOWN;
     ENDFUNC
-    
+
     FUNC bool job_finished(num job_id, \bool debug)
-        VAR num status;
-        
-        status := get_job_status(job_id \debug:=debug);
-        
-        RETURN status = JOB_STATUS_DONE;
+        RETURN get_job_status(job_id \debug?debug) = JOB_STATUS_DONE;
     ENDFUNC
-    
+
+    ! TRUE once the job is DONE. FALSE on timeout, on a failed job or on any error
+    ! (negative gri_last.error_code); the reason is written to the event log.
     FUNC bool wait_for_job(num job_id, \num delay, \num timeout, \bool debug)
         VAR bool job_done := FALSE;
+        VAR num job_status;
         VAR num time_elapsed := 0;
-        VAR num check_delay;
-        
-        ! Set default delay if not provided
+        VAR num check_delay := 1000;  ! ms, default 1 second
+
         IF Present(delay) THEN
             check_delay := delay;
-        ELSE
-            check_delay := 1000; ! Default 1 second
         ENDIF
-        
+
         WHILE NOT job_done DO
-            ! Check for timeout
-            IF Present(timeout) AND time_elapsed >= timeout THEN
-                ErrWrite \W, "WaitForJobError", "Timeout waiting for job " + NumToStr(job_id, 0);
-                RETURN FALSE;
+            ! Nested IFs: RAPID evaluates both sides of AND, and reading an absent timeout fails
+            IF Present(timeout) THEN
+                IF time_elapsed >= timeout THEN
+                    ErrWrite \W, "WaitForJobError", "Timeout waiting for job " + NumToStr(job_id, 0);
+                    RETURN FALSE;
+                ENDIF
             ENDIF
-            
+
             WaitTime check_delay/1000;  ! Convert ms to s
             time_elapsed := time_elapsed + check_delay;
-            
-            job_done := job_finished(job_id \debug:=debug);
-            
-            IF NOT job_done AND Present(debug) AND debug THEN
-                ErrWrite \I, "WaitStatus", "Job " + NumToStr(job_id,0) + " not completed yet";
+
+            job_status := get_job_status(job_id \debug?debug);
+            IF job_status = JOB_STATUS_FAILED OR gri_last.error_code < 0 THEN
+                ErrWrite \W, "WaitForJobError", "Job " + NumToStr(job_id, 0) + " failed: " + get_error_string(gri_last.error_code);
+                RETURN FALSE;
+            ENDIF
+            job_done := job_status = JOB_STATUS_DONE;
+
+            ! Nested IFs: in RAPID, NOT binds weaker than AND
+            IF NOT job_done THEN
+                IF Present(debug) THEN
+                    IF debug THEN
+                        ErrWrite \I, "WaitStatus", "Job " + NumToStr(job_id,0) + " not completed yet";
+                    ENDIF
+                ENDIF
             ENDIF
         ENDWHILE
-        
+
         RETURN TRUE;
-        
+
     ERROR
         ErrWrite \W, "WaitForJobError", "Error waiting for job " + NumToStr(job_id, 0);
         RETURN FALSE;
     ENDFUNC
-    
+
     FUNC bool hec_init(num pipeline_id, \bool debug)
-        VAR num magic;
-        VAR num protocol_ver;
-        VAR num message_length;
-        VAR num pose_format;
-        VAR num action;
-        VAR num resp_job_id;
-        VAR num error_code;
-        VAR robtarget pose;
-        VAR num data1;
-        VAR num data2;
-        VAR num data3;
-        VAR num data4;
-        VAR num data5;
-        
-        ! Pack and send request with pipeline ID in data1
-        request_pack request, ACTION_HEC_INIT, 0 \data1:=pipeline_id;
-        
-        IF NOT socket_send_receive(request, response \debug:=debug) THEN
+        IF NOT transact(ACTION_HEC_INIT, 0, unused_pose \data1:=pipeline_id \debug?debug) THEN
             RETURN FALSE;
         ENDIF
-        
-        ! Unpack response
-        IF NOT response_unpack(response,
-                             magic,
-                             protocol_ver,
-                             message_length,
-                             pose_format,
-                             action,
-                             resp_job_id,
-                             error_code,
-                             pose,
-                             data1,
-                             data2,
-                             data3,
-                             data4,
-                             data5) THEN
-            RETURN FALSE;
-        ENDIF
-        
-        IF error_code = 0 THEN
-            RETURN TRUE;
-        ELSE
-            ErrWrite \W, "HecInitError", "Pipeline " + NumToStr(pipeline_id, 0) + " failed: " + get_error_string(error_code);
-            RETURN FALSE;
-        ENDIF
-        
+        RETURN check_reply("HecInit", "Pipeline " + NumToStr(pipeline_id, 0));
+
     ERROR
         ErrWrite \W, "HecInitError", "Failed initializing HEC for pipeline " + NumToStr(pipeline_id, 0);
         RETURN FALSE;
     ENDFUNC
-    
+
     FUNC bool hec_set_pose(num pipeline_id, num slot, robtarget pose, \bool debug)
-        VAR num magic;
-        VAR num protocol_ver;
-        VAR num message_length;
-        VAR num pose_format;
-        VAR num action;
-        VAR num resp_job_id;
-        VAR num error_code;
-        VAR robtarget resp_pose;
-        VAR num data1;
-        VAR num data2;
-        VAR num data3;
-        VAR num data4;
-        VAR num data5;
-        
-        ! Pack and send request with pipeline ID in data1 and slot in data2
-        request_pack request, ACTION_HEC_SET_POSE, 0 \current_pos:=pose \data1:=pipeline_id \data2:=slot;
-        
-        IF NOT socket_send_receive(request, response \debug:=debug) THEN
+        IF NOT transact(ACTION_HEC_SET_POSE, 0, unused_pose \current_pos:=pose \data1:=pipeline_id \data2:=slot \debug?debug) THEN
             RETURN FALSE;
         ENDIF
-        
-        ! Unpack response
-        IF NOT response_unpack(response,
-                             magic,
-                             protocol_ver,
-                             message_length,
-                             pose_format,
-                             action,
-                             resp_job_id,
-                             error_code,
-                             resp_pose,
-                             data1,
-                             data2,
-                             data3,
-                             data4,
-                             data5) THEN
-            RETURN FALSE;
-        ENDIF
-        
-        IF error_code = 0 THEN
-            RETURN TRUE;
-        ELSE
-            ErrWrite \W, "HecSetPoseError", "Pipeline " + NumToStr(pipeline_id, 0) + " slot " + NumToStr(slot, 0) + " failed: " + get_error_string(error_code);
-            RETURN FALSE;
-        ENDIF
-        
+        RETURN check_reply("HecSetPose", "Pipeline " + NumToStr(pipeline_id, 0) + " slot " + NumToStr(slot, 0));
+
     ERROR
         ErrWrite \W, "HecSetPoseError", "Failed setting pose for pipeline " + NumToStr(pipeline_id, 0) + " slot " + NumToStr(slot, 0);
         RETURN FALSE;
     ENDFUNC
-    
+
     FUNC bool hec_calibrate(num pipeline_id, \bool debug)
-        VAR num magic;
-        VAR num protocol_ver;
-        VAR num message_length;
-        VAR num pose_format;
-        VAR num action;
-        VAR num resp_job_id;
-        VAR num error_code;
-        VAR robtarget pose;
-        VAR num data1;
-        VAR num data2;
-        VAR num data3;
-        VAR num data4;
-        VAR num data5;
-        
-        ! Pack and send request with pipeline ID in data1
-        request_pack request, ACTION_HEC_CALIBRATE, 0 \data1:=pipeline_id;
-        
-        IF NOT socket_send_receive(request, response \debug:=debug) THEN
+        IF NOT transact(ACTION_HEC_CALIBRATE, 0, unused_pose \data1:=pipeline_id \debug?debug) THEN
             RETURN FALSE;
         ENDIF
-        
-        ! Unpack response
-        IF NOT response_unpack(response,
-                             magic,
-                             protocol_ver,
-                             message_length,
-                             pose_format,
-                             action,
-                             resp_job_id,
-                             error_code,
-                             pose,
-                             data1,
-                             data2,
-                             data3,
-                             data4,
-                             data5) THEN
-            RETURN FALSE;
-        ENDIF
-        
-        IF error_code = 0 THEN
-            RETURN TRUE;
-        ELSE
-            ErrWrite \W, "HecCalibrateError", "Pipeline " + NumToStr(pipeline_id, 0) + " failed: " + get_error_string(error_code);
-            RETURN FALSE;
-        ENDIF
-        
+        RETURN check_reply("HecCalibrate", "Pipeline " + NumToStr(pipeline_id, 0));
+
     ERROR
         ErrWrite \W, "HecCalibrateError", "Failed calibrating pipeline " + NumToStr(pipeline_id, 0);
         RETURN FALSE;
     ENDFUNC
-    
+
 ENDMODULE
